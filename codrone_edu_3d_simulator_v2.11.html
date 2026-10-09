@@ -1,0 +1,2872 @@
+<!DOCTYPE html>
+<!-- CoDrone EDU 3D Simulator v2.11 -->
+<html lang="en" class="h-full bg-slate-950">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>3D Drone Simulator</title>
+  
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- Three.js and OrbitControls -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+  
+  <!-- FontAwesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+  <style>
+    body {
+      font-family: Inter, system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif;
+      user-select: none;
+    }
+    code, textarea, .font-mono {
+      font-family: 'JetBrains Mono', ui-monospace, 'Cascadia Mono', Consolas, Menlo, 'Courier New', monospace;
+    }
+    .var-flash { animation: varflash .7s ease-out; }
+    @keyframes varflash { from { background: rgba(250,204,21,.35); } to { background: transparent; } }
+    /* Custom Scrollbars */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #0f172a;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #334155;
+      border-radius: 3px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #475569;
+    }
+    .key-cap {
+      transition: all 0.08s ease;
+    }
+    /* Compact telemetry cards: value and secondary reading share one line */
+    .telem-grid > div { padding: 3px 6px !important; min-width: 0; }
+    .telem-grid > div > div:nth-child(1) { font-size: 9px; white-space: nowrap; }
+    .telem-grid > div > div:nth-child(2) { margin: 0 !important; font-size: 12px; line-height: 1.25; white-space: nowrap; }
+    .telem-grid > div > div:nth-child(3) { font-size: 9px; line-height: 1.1; white-space: nowrap; }
+    .kc { width: 2.5rem; height: 2.5rem; }
+    /* Short screens: shrink the key guide so the Manual tab fits without scrolling */
+    @media (max-height: 860px) {
+      .kc { width: 2rem; height: 2rem; }
+      .kc > span:last-child:not(:first-child) { display: none; }
+    }
+    @media (max-height: 720px) {
+      .kc { width: 1.75rem; height: 1.75rem; font-size: 10px; }
+    }
+    .key-active {
+      background-color: #06b6d4 !important;
+      color: #000000 !important;
+      box-shadow: 0 0 15px rgba(6, 182, 212, 0.6) !important;
+      transform: translateY(2px);
+    }
+  </style>
+</head>
+<body class="h-full w-full flex flex-col text-slate-100 overflow-hidden select-none bg-slate-950">
+
+  <!-- HEADER BAR -->
+  <header class="h-14 bg-slate-900 border-b border-slate-800 px-4 flex items-center justify-between z-20 shrink-0">
+    <div class="flex items-center space-x-3">
+      <div>
+        <h1 class="text-base font-bold tracking-tight text-white flex items-center gap-2">
+          3D Drone Simulator
+        </h1>
+      </div>
+    </div>
+
+    <!-- Controls Header Tools -->
+    <div class="flex items-center space-x-3">
+      <!-- Red E-Stop Button -->
+      <button id="estopBtn" class="px-3 py-1.5 bg-red-600 hover:bg-red-500 text-white font-bold text-xs rounded-lg shadow-lg shadow-red-600/30 flex items-center gap-1.5 transition active:scale-95">
+        <i class="fa-solid fa-triangle-exclamation"></i>
+        <span>E-STOP</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- MAIN SPLIT WORKSPACE -->
+  <main class="flex-1 flex overflow-hidden">
+
+    <!-- LEFT SIDE: 3D VIEWPORT (~55% WIDTH) -->
+    <section class="w-7/12 h-full relative bg-slate-950 flex flex-col border-r border-slate-800">
+      <!-- Three.js Canvas Container -->
+      <div id="canvas-container" class="w-full h-full cursor-grab active:cursor-grabbing"></div>
+
+      <!-- Flight timer + battery bubbles (top-right of the 3D view) -->
+      <div class="absolute top-3 right-3 z-10 flex flex-col items-stretch gap-2">
+        <div class="bg-slate-900/90 backdrop-blur-md border border-slate-700 rounded-lg px-3 py-2 shadow-lg min-w-[118px] text-center">
+          <div class="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Flight Time</div>
+          <div id="flightTimer" class="text-lg font-mono font-bold text-cyan-400 tabular-nums leading-tight">00:00.000</div>
+        </div>
+        <div class="bg-slate-900/90 backdrop-blur-md border border-slate-700 rounded-lg px-3 py-2 shadow-lg min-w-[118px] text-center">
+          <div class="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Battery</div>
+          <div id="batteryLevel" class="text-lg font-mono font-bold text-emerald-400 tabular-nums leading-tight">100%</div>
+        </div>
+      </div>
+
+      <!-- Map + view menus (top-left of the 3D view) -->
+      <div class="absolute top-3 left-3 z-10 flex flex-col items-stretch gap-2">
+      <!-- Mat Switcher Dropdown -->
+      <div class="flex items-center bg-slate-800 border border-slate-700 rounded-lg px-2.5 py-1">
+        <i class="fa-solid fa-layer-group text-slate-400 text-xs mr-2"></i>
+        <label for="matSelect" class="sr-only">Select Arena Mat</label>
+        <select id="matSelect" class="bg-transparent text-xs font-medium text-slate-200 focus:outline-none cursor-pointer">
+          <option value="blank" class="bg-slate-900">Blank Course Mat (10' x 12')</option>
+          <option value="color" class="bg-slate-900">Sensor Testing Ground</option>
+        </select>
+      </div>
+      <button id="btnRefreshMap" disabled title="Select Sensor Testing Ground to refresh the map" class="w-full py-1.5 px-3 bg-slate-800 text-slate-500 font-bold text-[10px] rounded-lg border border-slate-700 cursor-not-allowed transition flex items-center justify-center gap-1.5 shadow-lg">
+        <i class="fa-solid fa-arrows-rotate text-[9px]"></i>
+        <span>REFRESH MAP</span>
+      </button>
+      </div>
+
+      <!-- Camera Preset Buttons (top-center of the 3D view) -->
+      <div class="absolute top-3 left-1/2 -translate-x-1/2 z-10 flex bg-slate-800 p-1 rounded-lg border border-slate-700 gap-1">
+        <button id="camOrbitBtn" class="px-2.5 py-1 text-xs font-medium rounded bg-slate-700 text-white hover:bg-slate-600 transition flex items-center gap-1.5" title="Free Orbit Camera View">
+          <i class="fa-solid fa-camera-rotate text-cyan-400"></i>
+          <span>Orbit</span>
+        </button>
+        <button id="camChaseBtn" class="px-2.5 py-1 text-xs font-medium rounded hover:bg-slate-700 text-slate-300 transition flex items-center gap-1.5" title="Follow behind the drone">
+          <i class="fa-solid fa-location-arrow text-emerald-400"></i>
+          <span>Chase</span>
+        </button>
+        <button id="camFpvBtn" class="px-2.5 py-1 text-xs font-medium rounded hover:bg-slate-700 text-slate-300 transition flex items-center gap-1.5" title="First-person view from the drone">
+          <i class="fa-solid fa-eye text-amber-400"></i>
+          <span>FPV</span>
+        </button>
+      </div>
+
+      <!-- 3D Viewport Helper Legend -->
+      <div class="absolute bottom-3 left-3 bg-slate-900/80 backdrop-blur-md border border-slate-800 rounded-lg px-3 py-1.5 text-[11px] text-slate-400 flex items-center gap-3 pointer-events-none">
+        <span class="flex items-center gap-1"><span class="w-2.5 h-0.5 bg-red-500 inline-block"></span> X Axis (305cm)</span>
+        <span class="flex items-center gap-1"><span class="w-2.5 h-0.5 bg-emerald-500 inline-block"></span> Y Axis (366cm)</span>
+        <span class="flex items-center gap-1"><span class="w-2.5 h-0.5 bg-blue-500 inline-block"></span> Z Altitude</span>
+      </div>
+    </section>
+
+    <!-- RIGHT SIDE: CONTROL TABS & TELEMETRY (~45% WIDTH) -->
+    <section class="w-5/12 h-full flex flex-col bg-slate-900 border-l border-slate-800">
+
+      <!-- TOP CONTROL TAB HEADER -->
+      <div class="flex border-b border-slate-800 bg-slate-950/60 p-2 gap-2">
+        <button id="tabManualBtn" class="flex-1 py-2 px-3 text-xs font-semibold rounded-lg bg-slate-800 text-cyan-400 border border-slate-700 transition flex items-center justify-center gap-2">
+          <i class="fa-solid fa-gamepad"></i>
+          <span>Manual Flying</span>
+        </button>
+        <button id="tabCodeBtn" class="flex-1 py-2 px-3 text-xs font-semibold rounded-lg hover:bg-slate-800/60 text-slate-400 border border-transparent transition flex items-center justify-center gap-2">
+          <i class="fa-solid fa-code"></i>
+          <span>Python Code Editor</span>
+        </button>
+        <button id="tabMapBtn" class="flex-1 py-2 px-3 text-xs font-semibold rounded-lg hover:bg-slate-800/60 text-slate-400 border border-transparent transition flex items-center justify-center gap-2">
+          <i class="fa-solid fa-map-location-dot"></i>
+          <span>Map Editor</span>
+        </button>
+      </div>
+
+      <!-- TAB CONTENT CONTAINER -->
+      <div class="flex-1 overflow-y-auto p-3 space-y-3">
+
+        <!-- PANEL 1: MANUAL FLYING TAB -->
+        <div id="manualTabContent" class="space-y-3">
+
+          <!-- Compact control row: speed + takeoff + reset -->
+          <div class="flex items-center gap-2 bg-slate-950/70 border border-slate-800 rounded-xl p-2">
+            <div class="flex items-center gap-1 shrink-0">
+              <i class="fa-solid fa-gauge-high text-cyan-400 text-xs mr-0.5" title="Flight speed"></i>
+              <button id="btnSpeedS1" title="Speed 1 (30%)" class="px-2.5 py-1 text-[11px] font-bold rounded-md bg-cyan-600 text-black shadow-md transition">S1</button>
+              <button id="btnSpeedS2" title="Speed 2 (70%)" class="px-2.5 py-1 text-[11px] font-bold rounded-md bg-slate-800 text-slate-300 hover:bg-slate-700 border border-slate-700 transition">S2</button>
+              <button id="btnSpeedS3" title="Speed 3 (100%)" class="px-2.5 py-1 text-[11px] font-bold rounded-md bg-slate-800 text-slate-300 hover:bg-slate-700 border border-slate-700 transition">S3</button>
+              <span id="speedPercentLabel" class="hidden"></span>
+            </div>
+            <button id="btnTakeoffLand" class="flex-1 py-1.5 px-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[11px] rounded-md shadow transition flex items-center justify-center gap-1.5 active:scale-95">
+              <i class="fa-solid fa-plane-departure text-xs"></i>
+              <span id="takeoffBtnText">TAKEOFF</span>
+            </button>
+            <button id="btnResetPos" title="Reset to (30,30,0)" class="py-1.5 px-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-[11px] rounded-md border border-slate-700 transition flex items-center justify-center gap-1.5 active:scale-95">
+              <i class="fa-solid fa-rotate-left text-cyan-400 text-xs"></i>
+              <span>RESET</span>
+            </button>
+          </div>
+
+          <!-- Laptop Keyboard Visualizer -->
+          <div class="bg-slate-950/70 border border-slate-800 rounded-xl p-2.5 space-y-2">
+            <div class="flex justify-between items-center border-b border-slate-800 pb-2">
+              <span class="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                <i class="fa-solid fa-keyboard text-cyan-400"></i>
+                Laptop Keyboard Controls
+              </span>
+              <span class="text-[10px] text-slate-500">Live Feedback</span>
+            </div>
+
+            <!-- WASD & ARROWS DISPLAY GRID -->
+            <div class="grid grid-cols-2 gap-3">
+              <!-- Left: Throttle & Yaw (WASD) -->
+              <div class="bg-slate-900/90 border border-slate-800 rounded-lg p-2.5 text-center">
+                <div class="text-[10px] font-semibold text-slate-400 mb-2">THROTTLE & YAW</div>
+                <div class="flex flex-col items-center gap-1">
+                  <!-- W Key -->
+                  <div id="keyW" class="key-cap kc bg-slate-800 border border-slate-700 rounded-lg flex flex-col items-center justify-center text-xs font-bold text-slate-200">
+                    <span>W</span>
+                    <span class="text-[8px] text-slate-400 font-normal">Up</span>
+                  </div>
+                  <div class="flex gap-1">
+                    <!-- A Key -->
+                    <div id="keyA" class="key-cap kc bg-slate-800 border border-slate-700 rounded-lg flex flex-col items-center justify-center text-xs font-bold text-slate-200">
+                      <span>A</span>
+                      <span class="text-[8px] text-slate-400 font-normal">Turn L</span>
+                    </div>
+                    <!-- S Key -->
+                    <div id="keyS" class="key-cap kc bg-slate-800 border border-slate-700 rounded-lg flex flex-col items-center justify-center text-xs font-bold text-slate-200">
+                      <span>S</span>
+                      <span class="text-[8px] text-slate-400 font-normal">Down</span>
+                    </div>
+                    <!-- D Key -->
+                    <div id="keyD" class="key-cap kc bg-slate-800 border border-slate-700 rounded-lg flex flex-col items-center justify-center text-xs font-bold text-slate-200">
+                      <span>D</span>
+                      <span class="text-[8px] text-slate-400 font-normal">Turn R</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Right: Pitch & Roll (Arrow Keys) -->
+              <div class="bg-slate-900/90 border border-slate-800 rounded-lg p-2.5 text-center">
+                <div class="text-[10px] font-semibold text-slate-400 mb-2">PITCH & ROLL</div>
+                <div class="flex flex-col items-center gap-1">
+                  <!-- Up Arrow -->
+                  <div id="keyArrowUp" class="key-cap kc bg-slate-800 border border-slate-700 rounded-lg flex flex-col items-center justify-center text-xs font-bold text-slate-200">
+                    <i class="fa-solid fa-arrow-up text-[10px]"></i>
+                    <span class="text-[8px] text-slate-400 font-normal">Fwd</span>
+                  </div>
+                  <div class="flex gap-1">
+                    <!-- Left Arrow -->
+                    <div id="keyArrowLeft" class="key-cap kc bg-slate-800 border border-slate-700 rounded-lg flex flex-col items-center justify-center text-xs font-bold text-slate-200">
+                      <i class="fa-solid fa-arrow-left text-[10px]"></i>
+                      <span class="text-[8px] text-slate-400 font-normal">Left</span>
+                    </div>
+                    <!-- Down Arrow -->
+                    <div id="keyArrowDown" class="key-cap kc bg-slate-800 border border-slate-700 rounded-lg flex flex-col items-center justify-center text-xs font-bold text-slate-200">
+                      <i class="fa-solid fa-arrow-down text-[10px]"></i>
+                      <span class="text-[8px] text-slate-400 font-normal">Back</span>
+                    </div>
+                    <!-- Right Arrow -->
+                    <div id="keyArrowRight" class="key-cap kc bg-slate-800 border border-slate-700 rounded-lg flex flex-col items-center justify-center text-xs font-bold text-slate-200">
+                      <i class="fa-solid fa-arrow-right text-[10px]"></i>
+                      <span class="text-[8px] text-slate-400 font-normal">Right</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Spacebar & Esc Info Bar -->
+            <div class="grid grid-cols-2 gap-2 pt-1">
+              <div id="keySpace" class="key-cap bg-slate-800 border border-slate-700 rounded-lg p-2 flex items-center justify-between text-xs font-semibold text-slate-300">
+                <span>[ SPACEBAR ]</span>
+                <span class="text-[10px] text-slate-400">Takeoff / Land</span>
+              </div>
+              <div id="keyEscape" class="key-cap bg-slate-800 border border-slate-700 rounded-lg p-2 flex items-center justify-between text-xs font-semibold text-slate-300">
+                <span>[ ESC ]</span>
+                <span class="text-[10px] text-red-400">Emergency Stop</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="bg-slate-950/70 border border-slate-800 rounded-xl p-2 space-y-1">
+            <div class="flex items-center gap-2">
+              <i class="fa-solid fa-gamepad text-cyan-400 text-xs"></i>
+              <span id="controllerStatus" class="flex-1 min-w-0 truncate text-[11px] text-slate-400">Controller: not connected</span>
+              <button id="btnConnectController" class="py-1 px-2 bg-cyan-600 hover:bg-cyan-500 text-black font-bold text-[11px] rounded-md shadow transition">CONNECT</button>
+              <button id="btnDisconnectController" disabled class="py-1 px-2 bg-slate-800 text-slate-500 font-bold text-[11px] rounded-md border border-slate-700">DISCONNECT</button>
+            </div>
+            <div id="controllerMessage" class="text-[10px] text-slate-500 leading-snug"></div>
+          </div>
+
+        </div>
+
+        <!-- PANEL 2: PYTHON CODE EDITOR TAB -->
+        <div id="codeTabContent" class="space-y-3 hidden">
+          <div class="flex justify-end items-center">
+            <div class="flex gap-1.5">
+              <button id="btnStepBack" title="Rewind: step back one line" class="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] rounded-md border border-slate-700 transition flex items-center"><i class="fa-solid fa-backward-step text-[10px]"></i></button>
+              <button id="btnRunPython" title="Run the script" class="px-2 py-1 bg-cyan-600 hover:bg-cyan-500 text-black font-bold text-[11px] rounded-md shadow transition flex items-center gap-1">
+                <i class="fa-solid fa-play text-[10px]"></i>
+                <span>RUN</span>
+              </button>
+              <button id="btnStepFwd" title="Fast forward: run one line at a time" class="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] rounded-md border border-slate-700 transition flex items-center"><i class="fa-solid fa-forward-step text-[10px]"></i></button>
+              <button id="btnStopPython" title="Stop the script" class="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-[11px] rounded-md border border-slate-700 transition flex items-center gap-1">
+                <i class="fa-solid fa-square text-[10px]"></i>
+                <span>STOP</span>
+              </button>
+              <button id="btnResetPython" title="Stop the script and reset the drone to (30,30,0)" class="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-[11px] rounded-md border border-slate-700 transition flex items-center gap-1">
+                <i class="fa-solid fa-rotate-left text-[10px] text-cyan-400"></i>
+                <span>RESET</span>
+              </button>
+              <button id="btnClearCode" title="Clear the code editor" class="px-2 py-1 bg-slate-800 hover:bg-red-950 hover:text-red-300 hover:border-red-800 text-slate-300 font-semibold text-[11px] rounded-md border border-slate-700 transition flex items-center gap-1">
+                <i class="fa-solid fa-eraser text-[10px]"></i>
+                <span>CLEAR</span>
+              </button>
+              <button id="btnTogglePath" title="Show or hide the flight path" class="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-cyan-300 font-semibold text-[11px] rounded-md border border-cyan-800 transition flex items-center gap-1">
+                <i class="fa-solid fa-route text-[10px]"></i>
+                <span>PATH</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Code Textarea -->
+          <div class="relative rounded-xl overflow-hidden border border-slate-800 bg-slate-950">
+            <div id="lineHL" style="display:none;position:absolute;left:0;right:0;height:20px;pointer-events:none;z-index:0"></div>
+            <textarea id="pythonCodeInput" rows="11" wrap="off" style="line-height:20px;font-size:12px;white-space:pre;overflow:auto;position:relative;z-index:1" class="w-full bg-transparent p-3 text-xs font-mono text-cyan-300 focus:outline-none resize-none" spellcheck="false">import time
+from codrone_edu.drone import *
+
+drone = Drone()
+drone.pair()
+
+drone.takeoff()
+for count in range(4):
+    drone.move_forward(100)
+    drone.turn_right(90)
+drone.land()
+
+drone.close()</textarea>
+          </div>
+
+          <!-- Variables + Console -->
+          <div class="flex gap-2">
+          <div class="w-2/5 min-w-0 bg-slate-950 border border-slate-800 rounded-xl p-3 space-y-1.5">
+            <div class="flex justify-between items-center border-b border-slate-800 pb-1">
+              <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
+                <i class="fa-solid fa-eye text-slate-500"></i>
+                Variables
+              </span>
+            </div>
+            <div id="varWatch" class="h-24 overflow-y-auto font-mono text-[11px] space-y-0.5 leading-tight"><div class="text-slate-600">Variables show up here when your program runs.</div></div>
+          </div>
+          <div class="flex-1 min-w-0 bg-slate-950 border border-slate-800 rounded-xl p-3 space-y-1.5">
+            <div class="flex justify-between items-center border-b border-slate-800 pb-1">
+              <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
+                <i class="fa-solid fa-terminal text-slate-500"></i>
+                Console Log Output
+              </span>
+              <button id="btnClearConsole" class="text-[10px] text-slate-500 hover:text-slate-300">Clear</button>
+            </div>
+            <div id="consoleLog" class="h-24 overflow-y-auto font-mono text-[11px] text-green-400 space-y-1 leading-tight">
+              <div>[Ready] CoDrone EDU Simulator initialized.</div>
+            </div>
+          </div>
+          </div>
+        </div>
+
+        <!-- PANEL 3: MAP EDITOR TAB -->
+        <div id="mapTabContent" class="hidden flex flex-col gap-2 h-full">
+          <div id="mePalette" class="flex flex-wrap gap-1"></div>
+          <div id="meWrap" class="relative flex-1 rounded-xl border border-slate-800 bg-slate-950 overflow-hidden" style="min-height:260px"><canvas id="meCv" class="absolute inset-0 w-full h-full"></canvas></div>
+          <div id="meSel" class="flex items-center gap-1.5 text-[11px] text-slate-400" style="visibility:hidden">
+            <span id="meSelName" class="text-cyan-300 font-semibold"></span>
+            X <input id="meX" type="number" class="w-14 bg-slate-950 border border-slate-700 rounded px-1 py-0.5">
+            Y <input id="meY" type="number" class="w-14 bg-slate-950 border border-slate-700 rounded px-1 py-0.5">
+            Turn° <input id="meR" type="number" step="15" class="w-14 bg-slate-950 border border-slate-700 rounded px-1 py-0.5">
+            <button id="meRot" class="bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-[11px] rounded-md border border-slate-700 transition px-2 py-1">Rotate 90°</button><button id="meDel" class="bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-[11px] rounded-md border border-slate-700 transition px-2 py-1">Delete</button>
+          </div>
+          <div class="flex items-center gap-1.5">
+            <input id="meName" maxlength="40" placeholder="Map name" class="flex-1 min-w-0 bg-slate-950 border border-slate-700 rounded-md px-2 py-1 text-[11px] text-slate-200 focus:outline-none">
+            <button id="meLoad" class="px-2 py-1 bg-cyan-600 hover:bg-cyan-500 text-black font-bold text-[11px] rounded-md shadow transition">LOAD INTO SIMULATOR</button>
+            <button id="meSave" class="px-2 py-1 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[11px] rounded-md shadow transition">SAVE TO MAPS MENU</button>
+            <button id="meDelMap" title="Delete this saved map" class="bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-[11px] rounded-md border border-slate-700 transition px-2 py-1" style="display:none"><i class="fa-solid fa-trash text-[10px]"></i></button>
+          </div>
+          <div class="flex items-center gap-2 text-[11px] text-slate-400">
+            <label class="flex items-center gap-1">Floor <select id="meFloor" class="bg-slate-950 border border-slate-700 rounded px-1 py-0.5 text-slate-200 max-w-[9.5rem]"></select></label>
+            <label class="flex items-center gap-1"><input type="checkbox" id="meSnap" checked> Snap 5 cm</label>
+            <button id="meUnload" class="bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-[11px] rounded-md border border-slate-700 transition px-2 py-1">Remove map from simulator</button><button id="meClear" class="bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-[11px] rounded-md border border-slate-700 transition px-2 py-1">Clear editor</button>
+          </div>
+          <div id="meMsg" class="text-[11px] text-amber-400 min-h-[16px]"></div>
+          <details class="text-[11px] text-slate-400"><summary class="cursor-pointer">Share or import a map code</summary>
+            <textarea id="meCode" spellcheck="false" placeholder="Paste a map code here, then click Load from code." class="w-full h-16 mt-1 bg-slate-950 border border-slate-700 rounded p-1.5 font-mono text-[10px] text-slate-300"></textarea>
+            <div class="flex gap-1.5 mt-1"><button id="meCopy" class="bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-[11px] rounded-md border border-slate-700 transition px-2 py-1">Copy code</button><button id="meImport" class="bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-[11px] rounded-md border border-slate-700 transition px-2 py-1">Load from code</button></div></details>
+        </div>
+
+      </div>
+
+      <!-- BOTTOM PINNED SECTION: TELEMETRY DASHBOARD -->
+      <div id="telemetryPanel" class="p-2.5 bg-slate-950 border-t border-slate-800 shrink-0">
+        <div class="flex items-center justify-between mb-1.5">
+          <span class="text-[11px] font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+            <i class="fa-solid fa-microchip text-emerald-400"></i>
+            Live Sensor & Telemetry Dashboard
+          </span>
+          <span id="flightStatusBadge" class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-800 text-slate-400 border border-slate-700">
+            LANDED
+          </span>
+        </div>
+
+        <!-- Telemetry Grid: two rows of four -->
+        <div class="telem-grid grid grid-cols-4 gap-1.5">
+          <!-- X Position -->
+          <div class="bg-slate-900 border border-slate-800 rounded-lg p-2">
+            <div class="text-[10px] font-medium text-slate-400 flex items-center justify-between">
+              <span>X (Right)</span>
+              <i class="fa-solid fa-arrows-left-right text-red-400 text-[9px]"></i>
+            </div>
+            <div class="text-sm font-bold font-mono text-slate-100 mt-0.5" id="telemetryX">0.0 cm</div>
+            <div class="text-[9px] text-slate-500 font-mono" id="telemetryXFt">0.00 ft</div>
+          </div>
+
+          <!-- Y Position -->
+          <div class="bg-slate-900 border border-slate-800 rounded-lg p-2">
+            <div class="text-[10px] font-medium text-slate-400 flex items-center justify-between">
+              <span>Y (Forward)</span>
+              <i class="fa-solid fa-arrows-up-down text-emerald-400 text-[9px]"></i>
+            </div>
+            <div class="text-sm font-bold font-mono text-slate-100 mt-0.5" id="telemetryY">0.0 cm</div>
+            <div class="text-[9px] text-slate-500 font-mono" id="telemetryYFt">0.00 ft</div>
+          </div>
+
+          <!-- Z Altitude -->
+          <div class="bg-slate-900 border border-slate-800 rounded-lg p-2">
+            <div class="text-[10px] font-medium text-slate-400 flex items-center justify-between">
+              <span>Z (Altitude)</span>
+              <i class="fa-solid fa-arrow-up-from-ground-water text-blue-400 text-[9px]"></i>
+            </div>
+            <div class="text-sm font-bold font-mono text-cyan-400 mt-0.5" id="telemetryZ">0.0 cm</div>
+            <div class="text-[9px] text-slate-500 font-mono" id="telemetryZFt">0.00 ft</div>
+          </div>
+
+          <!-- Current Heading / Angle -->
+          <div class="bg-slate-900 border border-slate-800 rounded-lg p-2">
+            <div class="text-[10px] font-medium text-slate-400 flex items-center justify-between">
+              <span>Yaw Angle</span>
+              <i class="fa-solid fa-compass text-cyan-400 text-[9px]"></i>
+            </div>
+            <div class="text-sm font-bold font-mono text-slate-100 mt-0.5" id="telemetryYaw">0.0°</div>
+            <div class="text-[9px] text-slate-500">Heading</div>
+          </div>
+          <!-- Front Laser Range -->
+          <div class="bg-slate-900 border border-slate-800 rounded-lg p-2">
+            <div class="text-[10px] font-medium text-slate-400 flex items-center justify-between">
+              <span>Front Laser</span>
+              <i class="fa-solid fa-bullseye text-red-500 text-[9px]"></i>
+            </div>
+            <div class="text-sm font-bold font-mono text-slate-100 mt-0.5" id="telemetryFront">336 cm</div>
+            <div class="text-[9px] text-slate-500">Wall Distance</div>
+          </div>
+
+          <!-- Ground Color Sensor -->
+          <div class="bg-slate-900 border border-slate-800 rounded-lg p-2">
+            <div class="text-[10px] font-medium text-slate-400 flex items-center justify-between">
+              <span>Ground Sensor</span>
+              <i class="fa-solid fa-eye text-amber-400 text-[9px]"></i>
+            </div>
+            <div class="flex items-center gap-1.5 mt-1">
+              <div id="colorSwatch" class="w-3.5 h-3.5 rounded-full bg-slate-600 border border-slate-500"></div>
+              <span id="telemetryColor" class="text-xs font-bold font-mono text-slate-200">None</span>
+            </div>
+            <div class="text-[9px] text-slate-500">Target Mat</div>
+          </div>
+
+          <!-- Temperature -->
+          <div class="bg-slate-900 border border-slate-800 rounded-lg p-2">
+            <div class="text-[10px] font-medium text-slate-400 flex items-center justify-between">
+              <span>Temperature</span>
+              <i class="fa-solid fa-temperature-half text-orange-400 text-[9px]"></i>
+            </div>
+            <div class="text-sm font-bold font-mono text-slate-100 mt-0.5" id="telemetryTemp">24.3 °C</div>
+            <div class="text-[9px] text-slate-500 font-mono" id="telemetryTempF">75.7 °F</div>
+          </div>
+          <!-- Pressure -->
+          <div class="bg-slate-900 border border-slate-800 rounded-lg p-2">
+            <div class="text-[10px] font-medium text-slate-400 flex items-center justify-between">
+              <span>Pressure</span>
+              <i class="fa-solid fa-gauge-high text-violet-400 text-[9px]"></i>
+            </div>
+            <div class="text-sm font-bold font-mono text-slate-100 mt-0.5" id="telemetryPressure">97951 Pa</div>
+            <div class="text-[9px] text-slate-500 font-mono" id="telemetryPressureMb">979.51 mbar</div>
+          </div>
+        </div>
+      </div>
+
+    </section>
+  </main>
+
+  <!-- CoDrone controller library. The offline build script replaces this block with a bundled copy so no internet is needed. -->
+  <script type="module" id="controllerLib" data-src="https://esm.sh/codrone-edu-typescript@0.1.2?bundle">
+    try {
+      const m = await import("https://esm.sh/codrone-edu-typescript@0.1.2?bundle");
+      window.CoDroneControllerAPI = { Drone: m.Drone, parseButton: m.parseButton, ButtonEvent: m.ButtonEvent };
+    } catch (e) { window.CoDroneControllerError = String((e && e.message) || e); }
+  </script>
+  <script>
+    /* ========================================================================
+       CODRONE EDU SIMULATOR CORE LOGIC
+       - Dimensions: 10 ft x 12 ft (305 cm x 366 cm)
+       - Origin (0,0,0) is the drone's start position (centre of the START box)
+       - Scale: 1 unit in Three.js = 1 cm
+       ======================================================================== */
+
+    // Arena Mat Dimensions in cm
+    const MAT_WIDTH = 305;  // 10 feet
+    const CEILING_CM = 243.84;           // 8 ft ceiling over the flight area
+    const CEIL_LIMIT = CEILING_CM - 4;   // the drone is ~4 cm tall, so its top touches the ceiling here
+    const MAT_LENGTH = 366; // 12 feet
+
+    // The drone's start position. Sensor positions (get_pos_x / get_pos_y) and the crosshair readout
+    // are measured from here, like the real drone: x = right, y = forward.
+    const START_POS = { x: 30, y: 30 };
+
+    // Drone State Variables
+    let droneState = {
+      x: START_POS.x, // cm from left border (X axis)
+      y: START_POS.y, // cm from bottom border (Y axis forward)
+      z: 0,          // cm altitude
+      yaw: 0,        // degrees (0 = facing forward along +Y)
+      isFlying: false,
+      isLanding: false,
+      isTakingOff: false,
+      speedLevel: 1, // 1=S1(30%), 2=S2(70%), 3=S3(100%)
+      battery: 100,  // percent
+      temp: 24.3,    // deg C, warms up in flight (see updateTemperature)
+      targetZ: 0,
+      ledColor: 0x00ff00,
+      frontRange: 336,
+      flipPitch: 0, flipRoll: 0, // radians: temporary tumble while a flip() is running
+      detectedColor: 'None'
+    };
+
+    // Keypress State Tracker
+    const keysPressed = {};
+    let controllerDrone=null, controllerConnected=false, controllerConnecting=false, controllerButtonUnsub=null, controllerL1Timer=null, controllerL1Long=false, controllerFailures=0, controllerLastRead=0, controllerWantsReconnect=false, controllerLastLedOff=0;
+    const controllerAxes = { t: 0, yaw: 0, pitch: 0, roll: 0 }; // latest stick values (-1..1), applied every frame by updatePhysics
+    let flightElapsedMs=0, flightTimerStartedAt=null, flightTimerRunning=false;
+    const CONTROLLER_DEADZONE=0.10, L1_LONG_PRESS_MS=1000, CONTROLLER_L1_BUTTON=1, CONTROLLER_L2_BUTTON=2, CONTROLLER_R1_BUTTON=4;
+    const CONTROLLER_LED_COLORS=[0x00ff00,0xff0000,0x0000ff,0xffff00,0xff00ff,0x00ffff]; let controllerLedIndex=0;
+
+    // Speed multiplier scales (cm per frame approx)
+    const SPEED_SCALES = {
+      1: { linear: 1.2, rotation: 1.5 },  // S1 30%
+      2: { linear: 2.8, rotation: 3.0 },  // S2 70%
+      3: { linear: 4.5, rotation: 5.0 }   // S3 100%
+    };
+
+    // Dynamic Sensor Testing Ground objects. A fresh layout is generated each time the
+    // Sensor Testing Ground is opened. Color pads change both position and color, while
+    // the two obstacle walls change position but keep their horizontal/vertical orientation.
+    let COLOR_TARGETS = [
+      { x: 75, y: 100, r: 25, name: 'Red', hex: '#ef4444' },
+      { x: 230, y: 100, r: 25, name: 'Green', hex: '#22c55e' }
+    ];
+
+    let SENSOR_TEST_WALLS = [
+      { x: 90, y: 250, w: 50, d: 10, h: 100, rot: 0, name: 'Sensor Wall 1', color: '#64748b' },
+      { x: 215, y: 150, w: 50, d: 10, h: 100, rot: 90, name: 'Sensor Wall 2', color: '#94a3b8' }
+    ];
+
+    const SENSOR_PAD_COLORS = [
+      { name: 'Red', hex: '#ef4444' },
+      { name: 'Green', hex: '#22c55e' },
+      { name: 'Blue', hex: '#3b82f6' },
+      { name: 'Yellow', hex: '#eab308' }
+    ];
+
+    function randomInt(min, max) {
+      return Math.floor(Math.random() * (max - min + 1)) + min;
+    }
+
+    function layoutsOverlap(a, b, padding = 20) {
+      // Axis-aligned footprint test in mat coordinates. For the wall rotations we only need
+      // the actual footprint dimensions after the 90-degree turn.
+      const aw = a.rot % 180 === 0 ? a.w : a.d;
+      const ad = a.rot % 180 === 0 ? a.d : a.w;
+      const bw = b.rot % 180 === 0 ? b.w : b.d;
+      const bd = b.rot % 180 === 0 ? b.d : b.w;
+      return Math.abs(a.x - b.x) < (aw + bw) / 2 + padding &&
+             Math.abs(a.y - b.y) < (ad + bd) / 2 + padding;
+    }
+
+    function padOverlapsWall(pad, wall, padding = 18) {
+      const ww = wall.rot % 180 === 0 ? wall.w : wall.d;
+      const wd = wall.rot % 180 === 0 ? wall.d : wall.w;
+      return Math.abs(pad.x - wall.x) < ww / 2 + pad.r + padding &&
+             Math.abs(pad.y - wall.y) < wd / 2 + pad.r + padding;
+    }
+
+    function randomSensorTestingLayout() {
+      // Keep objects comfortably inside the 10' x 12' mat and away from the 30cm start area.
+      const MIN_X = 45, MAX_X = MAT_WIDTH - 45;
+      const MIN_Y = 45, MAX_Y = MAT_LENGTH - 45;
+
+      // Pick two distinct sensor colors on each new layout.
+      const colorPool = SENSOR_PAD_COLORS.map(c => ({ ...c }));
+      for (let i = colorPool.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [colorPool[i], colorPool[j]] = [colorPool[j], colorPool[i]];
+      }
+
+      let pads = null;
+      for (let attempt = 0; attempt < 100 && !pads; attempt++) {
+        const a = { x: randomInt(MIN_X, MAX_X), y: randomInt(MIN_Y, MAX_Y), r: 25, ...colorPool[0] };
+        const b = { x: randomInt(MIN_X, MAX_X), y: randomInt(MIN_Y, MAX_Y), r: 25, ...colorPool[1] };
+        const startDistA = Math.hypot(a.x - START_POS.x, a.y - START_POS.y);
+        const startDistB = Math.hypot(b.x - START_POS.x, b.y - START_POS.y);
+        if (Math.hypot(a.x - b.x, a.y - b.y) > 75 && startDistA > 70 && startDistB > 70) pads = [a, b];
+      }
+      if (!pads) pads = [
+        { x: 80, y: 110, r: 25, ...colorPool[0] },
+        { x: 225, y: 280, r: 25, ...colorPool[1] }
+      ];
+
+      let walls = null;
+      for (let attempt = 0; attempt < 150 && !walls; attempt++) {
+        const a = { x: randomInt(55, MAT_WIDTH - 55), y: randomInt(80, MAT_LENGTH - 80), w: 50, d: 10, h: 100, rot: 0, name: 'Sensor Wall 1', color: '#64748b' };
+        const b = { x: randomInt(55, MAT_WIDTH - 55), y: randomInt(80, MAT_LENGTH - 80), w: 50, d: 10, h: 100, rot: 90, name: 'Sensor Wall 2', color: '#94a3b8' };
+        const wallToWall = layoutsOverlap(a, b, 25);
+        const padHit = pads.some(pad => padOverlapsWall(pad, a) || padOverlapsWall(pad, b));
+        const startHit = pads.some(pad => Math.hypot(pad.x - START_POS.x, pad.y - START_POS.y) < 75);
+        if (!wallToWall && !padHit && !startHit) walls = [a, b];
+      }
+      if (!walls) walls = [
+        { x: 90, y: 250, w: 50, d: 10, h: 100, rot: 0, name: 'Sensor Wall 1', color: '#64748b' },
+        { x: 215, y: 150, w: 50, d: 10, h: 100, rot: 90, name: 'Sensor Wall 2', color: '#94a3b8' }
+      ];
+
+      COLOR_TARGETS = pads;
+      SENSOR_TEST_WALLS = walls;
+    }
+
+    // Three.js Globals
+    let scene, camera, renderer, controls;
+    let droneMesh, matMesh, originGroup, frontLaserRay, downLaserRay, topLedLight;
+    let ledGlow = null, ledAnim = null; // running set_drone_LED_mode effect: { r, g, b, mode, speed, t0 }
+    let currentMatType = 'blank';
+
+    // Web Audio API Context for Drone Buzzer
+    let audioCtx = null;
+
+    function ensureAudio() {
+      if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+      return audioCtx;
+    }
+    // Steady buzzer-style tone for scripted notes
+    function playTone(hz, sec) {
+      try {
+        const ctx = ensureAudio(), t = ctx.currentTime, osc = ctx.createOscillator(), g = ctx.createGain();
+        osc.type = 'square'; osc.frequency.value = hz;
+        g.gain.setValueAtTime(0.0001, t);
+        g.gain.linearRampToValueAtTime(0.06, t + 0.01);
+        g.gain.setValueAtTime(0.06, t + Math.max(0.011, sec - 0.02));
+        g.gain.linearRampToValueAtTime(0.0001, t + sec);
+        osc.connect(g); g.connect(ctx.destination);
+        osc.start(t); osc.stop(t + sec + 0.02);
+      } catch (e) { /* no audio available */ }
+    }
+    let contTone = null;
+    function startTone(hz) {
+      stopTone();
+      try {
+        const ctx = ensureAudio(), osc = ctx.createOscillator(), g = ctx.createGain();
+        osc.type = 'square'; osc.frequency.value = hz; g.gain.value = 0.06;
+        osc.connect(g); g.connect(ctx.destination); osc.start();
+        contTone = osc;
+      } catch (e) { /* no audio available */ }
+    }
+    function stopTone() { if (contTone) { try { contTone.stop(); } catch (e) {} contTone = null; } }
+
+    function playDroneBuzzer(freq = 440, durationSec = 0.3) {
+      try {
+        if (!audioCtx) {
+          audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        }
+        if (audioCtx.state === 'suspended') {
+          audioCtx.resume();
+        }
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'sine';
+        osc.frequency.value = freq;
+
+        gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + durationSec);
+
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+
+        osc.start();
+        osc.stop(audioCtx.currentTime + durationSec);
+      } catch (e) {
+        console.warn('Audio play error:', e);
+      }
+    }
+
+    // Dynamic Texture Generator for 10x12 Mat
+    function generateMatTexture(type) {
+      const canvas = document.createElement('canvas');
+      canvas.width = 1024;
+      canvas.height = 1228; // Proportionate to 305x366
+      const ctx = canvas.getContext('2d');
+
+      // Base Background
+      ctx.fillStyle = '#1e293b';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // Arena Border Box
+      ctx.strokeStyle = '#06b6d4';
+      ctx.lineWidth = 12;
+      ctx.strokeRect(10, 10, canvas.width - 20, canvas.height - 20);
+
+      // Grid Lines (1-Foot Grid = 10 cols, 12 rows)
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = '#334155';
+
+      const colStep = canvas.width / 10;
+      const rowStep = canvas.height / 12;
+
+      for (let i = 1; i < 10; i++) {
+        ctx.beginPath();
+        ctx.moveTo(i * colStep, 0);
+        ctx.lineTo(i * colStep, canvas.height);
+        ctx.stroke();
+      }
+      for (let j = 1; j < 12; j++) {
+        ctx.beginPath();
+        ctx.moveTo(0, j * rowStep);
+        ctx.lineTo(canvas.width, j * rowStep);
+        ctx.stroke();
+      }
+
+      // Corner Origin Highlight Box (0,0) -> (60cm, 60cm)
+      const originW = (60 / MAT_WIDTH) * canvas.width;
+      const originH = (60 / MAT_LENGTH) * canvas.height;
+
+      // In Canvas Y=0 is top, but Mat Y=0 is bottom-left!
+      const originYCanvas = canvas.height - originH;
+
+      ctx.fillStyle = 'rgba(6, 182, 212, 0.2)';
+      ctx.fillRect(0, originYCanvas, originW, originH);
+      ctx.strokeStyle = '#06b6d4';
+      ctx.lineWidth = 4;
+      ctx.strokeRect(0, originYCanvas, originW, originH);
+
+      // Text in Origin Box
+      ctx.fillStyle = '#06b6d4';
+      ctx.font = 'bold 26px Inter, sans-serif';
+      ctx.fillText('START (0,0)', 15, canvas.height - 20);
+
+      // Specific Mat Overlays
+      if (type === 'grid') {
+        // Fine centimeter sub-grids
+        ctx.strokeStyle = '#1e3a8a';
+        ctx.lineWidth = 1;
+        for (let x = 0; x < canvas.width; x += colStep / 5) {
+          ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke();
+        }
+        for (let y = 0; y < canvas.height; y += rowStep / 5) {
+          ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke();
+        }
+      } else if (type === 'color') {
+        // Sensor Testing Ground: two color-sensor pads plus a small title.
+        ctx.fillStyle = '#e2e8f0';
+        ctx.font = 'bold 28px Inter, sans-serif';
+        ctx.textAlign = 'left';
+        ctx.fillText('SENSOR TESTING GROUND', 20, 38);
+
+        COLOR_TARGETS.forEach(target => {
+          const cx = (target.x / MAT_WIDTH) * canvas.width;
+          const cy = canvas.height - ((target.y / MAT_LENGTH) * canvas.height); // Flip Y
+          const rad = (target.r / MAT_WIDTH) * canvas.width;
+
+          ctx.beginPath();
+          ctx.arc(cx, cy, rad, 0, Math.PI * 2);
+          ctx.fillStyle = target.hex;
+          ctx.fill();
+          ctx.lineWidth = 6;
+          ctx.strokeStyle = '#ffffff';
+          ctx.stroke();
+
+          ctx.fillStyle = '#ffffff';
+          ctx.font = 'bold 22px Inter, sans-serif';
+          ctx.textAlign = 'center';
+          ctx.fillText(target.name, cx, cy + 8);
+        });
+      }
+
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.wrapS = THREE.ClampToEdgeWrapping;
+      texture.wrapT = THREE.ClampToEdgeWrapping;
+      return texture;
+    }
+
+    // Initialize 3D Three.js Scene
+    function init3D() {
+      const container = document.getElementById('canvas-container');
+      const width = container.clientWidth || 800;
+      const height = container.clientHeight || 600;
+
+      scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x0a0f1d);
+
+      // Camera
+      camera = new THREE.PerspectiveCamera(45, width / height, 1, 3000);
+      camera.position.set(152.5, 380, 280); // Orbit perspective
+
+      // Renderer
+      renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setSize(width, height);
+      renderer.setPixelRatio(window.devicePixelRatio);
+      renderer.shadowMap.enabled = true;
+      container.appendChild(renderer.domElement);
+
+      // Orbit Controls
+      controls = new THREE.OrbitControls(camera, renderer.domElement);
+      controls.target.set(152.5, 0, -183); // Center of 10'x12' mat
+      controls.update();
+
+      // Lighting
+      const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
+      scene.add(ambientLight);
+
+      const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+      dirLight.position.set(200, 500, 200);
+      dirLight.castShadow = true;
+      scene.add(dirLight);
+
+      // 10' x 12' Arena Floor Plane Mesh
+      // Three.js Plane: X = 305, Z = 366. Three.js center at (152.5, 0, -183)
+      const planeGeo = new THREE.PlaneGeometry(MAT_WIDTH, MAT_LENGTH);
+      const matTexture = generateMatTexture('blank');
+      const planeMat = new THREE.MeshStandardMaterial({
+        map: matTexture,
+        roughness: 0.6,
+        metalness: 0.1
+      });
+
+      matMesh = new THREE.Mesh(planeGeo, planeMat);
+      matMesh.rotation.x = -Math.PI / 2; // Flat horizontal
+      // Place mat so corner (0,0) is at Three.js (0,0,0)
+      matMesh.position.set(MAT_WIDTH / 2, 0, -MAT_LENGTH / 2);
+      matMesh.receiveShadow = true;
+      scene.add(matMesh);
+
+      // Visual Origin Axis Marker at (0,0,0)
+      originGroup = new THREE.Group();
+      
+      // X Axis - Red
+      const xMat = new THREE.LineBasicMaterial({ color: 0xef4444, linewidth: 4 });
+      const xGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 1, 0), new THREE.Vector3(80, 1, 0)]);
+      originGroup.add(new THREE.Line(xGeo, xMat));
+
+      // Y Axis - Green (Mat Y is Three.js -Z)
+      const yMat = new THREE.LineBasicMaterial({ color: 0x22c55e, linewidth: 4 });
+      const yGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, 1, -80)]);
+      originGroup.add(new THREE.Line(yGeo, yMat));
+
+      originGroup.position.set(START_POS.x, 0, -START_POS.y);
+      scene.add(originGroup);
+
+      // Construct CoDrone EDU 3D Model
+      createDroneModel();
+
+      initMatHover();
+      initPathAndEdge();
+
+      // Window Resize Listener
+      window.addEventListener('resize', onWindowResize);
+      // Embedded pages (Google Sites, LMS frames) can finish laying out after load - keep the 3D view in sync
+      if (window.ResizeObserver) new ResizeObserver(onWindowResize).observe(document.getElementById('canvas-container'));
+      window.addEventListener('load', onWindowResize);
+      setTimeout(onWindowResize, 300);
+      setTimeout(onWindowResize, 1500);
+    }
+
+    // Create Detailed 3D Drone Model
+    function createDroneModel() {
+      droneMesh = new THREE.Group();
+
+      // Center Chassis Body
+      const bodyGeo = new THREE.BoxGeometry(14, 4, 14);
+      const bodyMat = new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.3 });
+      const body = new THREE.Mesh(bodyGeo, bodyMat);
+      droneMesh.add(body);
+
+      // Top RGB Status LED Light
+      const ledGeo = new THREE.SphereGeometry(2, 16, 16);
+      const ledMat = new THREE.MeshBasicMaterial({ color: 0x00ff00 });
+      topLedLight = new THREE.Mesh(ledGeo, ledMat);
+      topLedLight.position.set(0, 2.5, 0);
+      droneMesh.add(topLedLight);
+      // Soft glow around the LED so colours and effects are easy to see from the default camera distance
+      ledGlow = new THREE.Mesh(new THREE.SphereGeometry(5.5, 16, 16), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.35, depthWrite: false }));
+      topLedLight.add(ledGlow);
+
+      // Propeller Guard Rings & Rotors
+      const propPositions = [
+        [7, 0, -7],   // Front Right
+        [-7, 0, -7],  // Front Left
+        [7, 0, 7],    // Rear Right
+        [-7, 0, 7]    // Rear Left
+      ];
+
+      propPositions.forEach((pos) => {
+        // Guard Ring
+        const ringGeo = new THREE.TorusGeometry(4.5, 0.4, 8, 24);
+        const ringMat = new THREE.MeshStandardMaterial({ color: 0xef4444, roughness: 0.4 }); // CoDrone red guards
+        const ring = new THREE.Mesh(ringGeo, ringMat);
+        ring.rotation.x = Math.PI / 2;
+        ring.position.set(pos[0], 0, pos[2]);
+        droneMesh.add(ring);
+
+        // Propeller Blades
+        const bladeGeo = new THREE.BoxGeometry(7, 0.2, 1);
+        const bladeMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+        const blade = new THREE.Mesh(bladeGeo, bladeMat);
+        blade.position.set(pos[0], 0.5, pos[2]);
+        droneMesh.add(blade);
+      });
+
+      // Front Laser Beam Visualizer (Red Laser Ray)
+      const frontRayGeo = new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(0, 0, -7),
+        new THREE.Vector3(0, 0, -300)
+      ]);
+      const frontRayMat = new THREE.LineDashedMaterial({
+        color: 0xff0000,
+        dashSize: 4,
+        gapSize: 2
+      });
+      frontLaserRay = new THREE.Line(frontRayGeo, frontRayMat);
+      frontLaserRay.computeLineDistances();
+      frontLaserRay.frustumCulled = false;
+      droneMesh.add(frontLaserRay);
+
+      // Downward Laser Beam Visualizer (Green Altitude Laser)
+      const downRayGeo = new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(0, -2, 0),
+        new THREE.Vector3(0, -200, 0)
+      ]);
+      const downRayMat = new THREE.LineDashedMaterial({
+        color: 0x00ff00,
+        dashSize: 3,
+        gapSize: 2
+      });
+      downLaserRay = new THREE.Line(downRayGeo, downRayMat);
+      downLaserRay.computeLineDistances();
+      downLaserRay.frustumCulled = false;
+      droneMesh.add(downLaserRay);
+
+      scene.add(droneMesh);
+
+      // Initial Drone Position at Corner Origin (30cm, 30cm, 0cm)
+      updateDroneMeshPosition();
+    }
+
+    // Map Mat Coordinates (X, Y, Z) to Three.js World Position
+    function updateDroneMeshPosition() {
+      // Mat X = Three.js X
+      // Mat Y = Three.js -Z (Forward)
+      // Mat Z = Three.js Y (Altitude)
+      droneMesh.position.x = droneState.x;
+      droneMesh.position.y = droneState.z + 2; // +2 offset for half-height resting on ground
+      droneMesh.position.z = -droneState.y;
+
+      // Rotation around Yaw (Y axis in Three.js)
+      // Convert degrees to radians
+      droneMesh.rotation.order = 'YXZ'; // yaw first, then the flip tumbles around the drone's own axes
+      droneMesh.rotation.y = -(droneState.yaw * Math.PI) / 180;
+      droneMesh.rotation.x = droneState.flipPitch || 0;
+      droneMesh.rotation.z = droneState.flipRoll || 0;
+    }
+
+    // Mat hover guides: crosshair lines + live X/Y readout (mat coordinates in cm)
+    function initMatHover() {
+      const container = document.getElementById('canvas-container');
+      const dom = renderer.domElement;
+      const raycaster = new THREE.Raycaster();
+      const mouse = new THREE.Vector2();
+
+      const mkLine = (color) => {
+        const geo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]);
+        const line = new THREE.Line(geo, new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.85, depthTest: false }));
+        line.renderOrder = 10;
+        line.visible = false;
+        scene.add(line);
+        return line;
+      };
+      const lineX = mkLine(0xef4444); // runs along X at the cursor's Y
+      const lineY = mkLine(0x22c55e); // runs along Y at the cursor's X
+
+      const ring = new THREE.Mesh(
+        new THREE.RingGeometry(3, 4.5, 32),
+        new THREE.MeshBasicMaterial({ color: 0xfacc15, side: THREE.DoubleSide, transparent: true, opacity: 0.95, depthTest: false })
+      );
+      ring.rotation.x = -Math.PI / 2;
+      ring.renderOrder = 11;
+      ring.visible = false;
+      scene.add(ring);
+
+      const tip = document.createElement('div');
+      tip.style.cssText = 'position:absolute;display:none;pointer-events:none;z-index:15;padding:6px 8px;border-radius:8px;' +
+        'background:rgba(15,23,42,0.92);border:1px solid #334155;font:600 11px "JetBrains Mono",monospace;color:#e2e8f0;line-height:1.5;white-space:nowrap';
+      container.parentElement.appendChild(tip);
+
+      function hide() {
+        lineX.visible = lineY.visible = ring.visible = false;
+        tip.style.display = 'none';
+        dom.style.cursor = '';
+      }
+
+      dom.addEventListener('mouseleave', hide);
+      dom.addEventListener('mousemove', (e) => {
+        const rect = dom.getBoundingClientRect();
+        mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+        mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+        raycaster.setFromCamera(mouse, camera);
+        const hit = raycaster.intersectObject(matMesh)[0];
+        if (!hit) { hide(); return; }
+
+        const x = Math.max(0, Math.min(MAT_WIDTH, hit.point.x));
+        const y = Math.max(0, Math.min(MAT_LENGTH, -hit.point.z));
+        const h = 0.6; // just above the mat
+
+        lineX.geometry.setFromPoints([new THREE.Vector3(0, h, -y), new THREE.Vector3(MAT_WIDTH, h, -y)]);
+        lineY.geometry.setFromPoints([new THREE.Vector3(x, h, 0), new THREE.Vector3(x, h, -MAT_LENGTH)]);
+        ring.position.set(x, h, -y);
+        lineX.visible = lineY.visible = ring.visible = true;
+        dom.style.cursor = 'crosshair';
+
+        // Coordinates relative to the drone's start position (what get_pos_x / get_pos_y report)
+        const rx = x - START_POS.x, ry = y - START_POS.y;
+        const sg = v => { const r = Math.round(v); return (r > 0 ? '+' : '') + r; };
+        const sf = v => { const f = v / 30.48; return Math.abs(f) < 0.005 ? '0.00' : (f > 0 ? '+' : '') + f.toFixed(2); };
+        tip.innerHTML = `<span style="color:#f87171">X ${sg(rx)} cm</span> <span style="color:#64748b">(${sf(rx)} ft)</span><br>` +
+                        `<span style="color:#4ade80">Y ${sg(ry)} cm</span> <span style="color:#64748b">(${sf(ry)} ft)</span>`;
+        tip.style.display = 'block';
+        const cr = container.getBoundingClientRect();
+        let tx = e.clientX - cr.left + 16, ty = e.clientY - cr.top + 16;
+        if (tx > cr.width - 150) tx -= 170;
+        if (ty > cr.height - 60) ty -= 70;
+        tip.style.left = tx + 'px';
+        tip.style.top = ty + 'px';
+      });
+    }
+
+    // ===== Flight path, mat edge outline and boundary banner =====
+    let trailLine, trailCount = 0, showTrail = true, edgeFrame, ceilingPane, edgeFlashUntil = 0, bannerEl, bannerTimer;
+    const TRAIL_MAX = 4000, trailPts = new Float32Array(TRAIL_MAX * 3);
+
+    function initPathAndEdge() {
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.BufferAttribute(trailPts, 3));
+      geo.setDrawRange(0, 0);
+      trailLine = new THREE.Line(geo, new THREE.LineBasicMaterial({ color: 0xfbbf24, depthTest: false }));
+      trailLine.frustumCulled = false; trailLine.renderOrder = 9; trailLine.visible = showTrail;
+      scene.add(trailLine);
+
+      // Red frame that sits exactly on top of the mat's bold light-blue border and lights up when the drone reaches the edge
+      const W = MAT_WIDTH, L = MAT_LENGTH, px = W / 1024, py = L / 1228; // the mat texture is 1024 x 1228 px
+      const outer = new THREE.Shape();
+      outer.moveTo(2 * px, 2 * py); outer.lineTo(W - 2 * px, 2 * py); outer.lineTo(W - 2 * px, L - 2 * py); outer.lineTo(2 * px, L - 2 * py); outer.closePath();
+      const inner = new THREE.Path();
+      inner.moveTo(18 * px, 18 * py); inner.lineTo(18 * px, L - 18 * py); inner.lineTo(W - 18 * px, L - 18 * py); inner.lineTo(W - 18 * px, 18 * py); inner.closePath();
+      outer.holes.push(inner);
+      edgeFrame = new THREE.Mesh(new THREE.ShapeGeometry(outer), new THREE.MeshBasicMaterial({ color: 0xef4444, side: THREE.DoubleSide }));
+      edgeFrame.rotation.x = -Math.PI / 2; // mat Y runs along -Z
+      edgeFrame.position.y = 0.6;
+      edgeFrame.visible = false;
+      scene.add(edgeFrame);
+
+      // 8 ft ceiling: invisible until the drone hits it, then a red pane lights up at that height
+      ceilingPane = new THREE.Mesh(new THREE.PlaneGeometry(W, L), new THREE.MeshBasicMaterial({ color: 0xef4444, transparent: true, opacity: 0.35, side: THREE.DoubleSide, depthWrite: false }));
+      ceilingPane.rotation.x = -Math.PI / 2;
+      ceilingPane.position.set(W / 2, CEILING_CM, -L / 2);
+      ceilingPane.visible = false;
+      scene.add(ceilingPane);
+
+      bannerEl = document.createElement('div');
+      bannerEl.style.cssText = 'position:absolute;top:56px;left:50%;transform:translateX(-50%);display:none;z-index:20;max-width:92%;padding:8px 14px;' +
+        'border-radius:10px;background:rgba(127,29,29,0.95);border:1px solid #ef4444;color:#fee2e2;font:600 12px Inter,system-ui,sans-serif;pointer-events:none;text-align:center';
+      document.getElementById('canvas-container').parentElement.appendChild(bannerEl);
+    }
+
+    function flashCeiling() {
+      if (!ceilingPane) return;
+      ceilingPane.visible = true;
+      edgeFlashUntil = performance.now() + 2500;
+    }
+    function flashEdge() {
+      if (!edgeFrame) return;
+      edgeFrame.visible = true;
+      edgeFlashUntil = performance.now() + 2500;
+    }
+    function showBoundaryBanner(msg, keep) {
+      if (!bannerEl) return;
+      bannerEl.textContent = msg; bannerEl.style.display = 'block';
+      clearTimeout(bannerTimer);
+      if (!keep) bannerTimer = setTimeout(hideBoundaryBanner, 6000);
+    }
+    function hideBoundaryBanner() { if (bannerEl) bannerEl.style.display = 'none'; clearTimeout(bannerTimer); }
+
+    // Flight path: drawn on the mat while a Python script runs
+    function clearTrail() { trailCount = 0; if (trailLine) trailLine.geometry.setDrawRange(0, 0); }
+    function updateTrail() {
+      if (!trailLine || !isScriptRunning || trailCount >= TRAIL_MAX) return;
+      const x = droneState.x, z = -droneState.y, i = trailCount * 3;
+      if (trailCount > 0 && Math.hypot(x - trailPts[i - 3], z - trailPts[i - 1]) < 1.5) return;
+      trailPts[i] = x; trailPts[i + 1] = 1.2; trailPts[i + 2] = z;
+      trailCount++;
+      trailLine.geometry.attributes.position.needsUpdate = true;
+      trailLine.geometry.setDrawRange(0, trailCount);
+    }
+
+    function onWindowResize() {
+      const container = document.getElementById('canvas-container');
+      const w = container.clientWidth, h = container.clientHeight;
+      if (!w || !h) return; // container not laid out yet
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+      renderer.setSize(w, h);
+    }
+
+    // Keyboard Event Handling
+    const KEY_IDS = {
+      KeyW: 'keyW', KeyA: 'keyA', KeyS: 'keyS', KeyD: 'keyD',
+      ArrowUp: 'keyArrowUp', ArrowDown: 'keyArrowDown', ArrowLeft: 'keyArrowLeft', ArrowRight: 'keyArrowRight',
+      Space: 'keySpace', Escape: 'keyEscape'
+    };
+
+    function updateKeyCapVisual(code, active) {
+      const el = document.getElementById(KEY_IDS[code]);
+      if (el) el.classList.toggle('key-active', active);
+    }
+
+    window.addEventListener('keydown', (e) => {
+      if (e.target && /^(TEXTAREA|INPUT)$/.test(e.target.tagName)) return; // let text boxes type normally
+      if (!KEY_IDS[e.code]) return;
+      e.preventDefault();
+      if (e.repeat) return;
+      keysPressed[e.code] = true;
+      updateKeyCapVisual(e.code, true);
+      if (e.code === 'Space') toggleTakeoffLand();
+      if (e.code === 'Escape') emergencyStop();
+    });
+
+    window.addEventListener('keyup', (e) => {
+      keysPressed[e.code] = false;
+      updateKeyCapVisual(e.code, false);
+    });
+
+    window.addEventListener('blur', () => {
+      for (const k in keysPressed) { keysPressed[k] = false; updateKeyCapVisual(k, false); }
+    });
+
+    function controllerAxis(v){const n=Math.max(-100,Math.min(100,Number(v)||0))/100;return Math.abs(n)<CONTROLLER_DEADZONE?0:n;}
+    function updateControllerButtonStyles(){
+      const connectBtn=document.getElementById('btnConnectController'), disconnectBtn=document.getElementById('btnDisconnectController');
+      if(!connectBtn||!disconnectBtn)return;
+      const bright='py-1 px-2 bg-cyan-600 hover:bg-cyan-500 text-black font-bold text-[11px] rounded-md shadow transition';
+      const dark='py-1 px-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-[11px] rounded-md border border-slate-700 transition';
+      connectBtn.className=controllerConnected?dark:bright;
+      disconnectBtn.className=controllerConnected?bright:dark;
+    }
+    // ===== Physical CoDrone controller (USB, Web Serial) =====
+    const CONTROLLER_HINT = 'L1: hold 1 s = takeoff/land, tap = speed  |  L2 = camera view  |  R1 = LED color';
+    const CONTROLLER_LIGHTS_OFF = true; // the controller flashes red until a real drone is paired - keep its lights off while it drives the simulator
+    const controllerSleep = ms => new Promise(res => setTimeout(res, ms));
+    const controllerTimeout = (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), ms))]);
+
+    function setControllerStatus(short, detail) {
+      document.getElementById('controllerStatus').textContent = 'Controller: ' + short;
+      document.getElementById('controllerMessage').textContent = detail || CONTROLLER_HINT;
+      document.getElementById('btnConnectController').disabled = controllerConnected || controllerConnecting;
+      document.getElementById('btnDisconnectController').disabled = !controllerConnected;
+      updateControllerButtonStyles();
+    }
+    function cycleControllerSpeed() {
+      droneState.speedLevel = droneState.speedLevel >= 3 ? 1 : droneState.speedLevel + 1;
+      updateSpeedButtons();
+      logConsole('Controller: Speed S' + droneState.speedLevel + '.');
+    }
+    function cycleControllerLed() {
+      controllerLedIndex = (controllerLedIndex + 1) % CONTROLLER_LED_COLORS.length;
+      droneState.ledColor = CONTROLLER_LED_COLORS[controllerLedIndex];
+      ledAnim = null; if (topLedLight) topLedLight.material.color.setHex(droneState.ledColor);
+      logConsole('Controller: LED color changed.');
+    }
+
+    // Stick values (-1..1) for the physics loop, or null when the sticks must be ignored:
+    // not connected, a Python program is flying the drone, or the last reading is stale (never fly on old data).
+    function controllerInput() {
+      if (!controllerConnected || isScriptRunning || performance.now() - controllerLastRead > 400) return null;
+      return controllerAxes;
+    }
+
+    async function controllerLightsOff() {
+      if (!CONTROLLER_LIGHTS_OFF || !controllerDrone) return;
+      try {
+        if (typeof controllerDrone.controllerLedOff === 'function') await controllerDrone.controllerLedOff();
+        else if (typeof controllerDrone.setControllerLed === 'function') await controllerDrone.setControllerLed(0, 0, 0, 0);
+      } catch (e) { /* the lights are cosmetic - never let them break the connection */ }
+    }
+
+    // Reads the sticks about 25 times a second. One read at a time, and every read has a time limit,
+    // so a controller that stops answering (or is unplugged) is noticed within a couple of seconds.
+    async function controllerPollLoop() {
+      const me = controllerDrone;
+      while (controllerConnected && controllerDrone === me) {
+        const started = performance.now();
+        try {
+          const j = await controllerTimeout(me.getJoystick(250), 800);
+          if (!controllerConnected || controllerDrone !== me) return;
+          if (j) {
+            const l = j.left || {}, r = j.right || {};
+            controllerAxes.t = controllerAxis(l.y); controllerAxes.yaw = controllerAxis(l.x);
+            controllerAxes.pitch = controllerAxis(r.y); controllerAxes.roll = controllerAxis(r.x);
+            controllerLastRead = performance.now(); controllerFailures = 0;
+          } else controllerFailures++;
+        } catch (e) { controllerFailures++; }
+        if (controllerFailures >= 5) { controllerLost('stopped responding.'); return; }
+        if (performance.now() - controllerLastLedOff > 3000) { controllerLastLedOff = performance.now(); controllerLightsOff(); }
+        await controllerSleep(Math.max(0, 40 - (performance.now() - started)));
+      }
+    }
+
+    // The cable was pulled or the controller went silent: clean up so it can connect again, and wait for it to be plugged back in
+    function controllerLost(reason) {
+      if (!controllerConnected) return;
+      logConsole('Controller ' + reason);
+      controllerWantsReconnect = true;
+      disconnectPhysicalController(true);
+      setControllerStatus('unplugged', 'Plug the controller back in and it reconnects by itself, or click CONNECT.');
+    }
+    // A USB serial device was unplugged: was it ours?
+    async function verifyControllerStillThere() {
+      if (!controllerConnected || !controllerDrone) return;
+      try { await controllerTimeout(controllerDrone.getJoystick(400), 900); } catch (e) { controllerLost('was unplugged.'); }
+    }
+
+    function handleControllerButton(packet) {
+      const api = window.CoDroneControllerAPI; if (!api) return;
+      let b; try { b = api.parseButton(packet); } catch (e) { return; }
+      const button = Number(b.button), event = Number(b.event);
+      const down = Number(api.ButtonEvent && api.ButtonEvent.Down != null ? api.ButtonEvent.Down : 1);
+      const up = Number(api.ButtonEvent && api.ButtonEvent.Up != null ? api.ButtonEvent.Up : 3);
+      if (button === CONTROLLER_L1_BUTTON && !isScriptRunning) {
+        if (event === down) { // hold for 1 second = takeoff / land, a quick tap = change speed
+          clearTimeout(controllerL1Timer); controllerL1Long = false;
+          controllerL1Timer = setTimeout(() => { controllerL1Long = true; toggleTakeoffLand(); }, L1_LONG_PRESS_MS);
+        } else if (event === up) { clearTimeout(controllerL1Timer); if (!controllerL1Long) cycleControllerSpeed(); }
+      } else if (button === CONTROLLER_R1_BUTTON && event === up && !isScriptRunning) cycleControllerLed();
+      else if (button === CONTROLLER_L2_BUTTON && event === up) cycleControllerView();
+    }
+
+    // Opens the controller. With a port (an already-approved USB device) no picker is needed - that is how it reconnects by itself.
+    async function startControllerSession(port) {
+      const api = window.CoDroneControllerAPI;
+      controllerDrone = new api.Drone(port ? { port, baudRate: 57600 } : { baudRate: 57600 });
+      await (port ? controllerDrone.connect() : controllerDrone.connect({ filters: [{ usbVendorId: 1155 }] }));
+      controllerConnected = true; controllerConnecting = false; controllerWantsReconnect = false; controllerFailures = 0; controllerLastRead = 0; controllerLastLedOff = 0;
+      if (typeof controllerDrone.onPacket === 'function') controllerButtonUnsub = controllerDrone.onPacket(p => { if (p.dataType === 0x70) handleControllerButton(p); });
+      else logConsole('Controller buttons are not available with this library version; the sticks still work.');
+      setControllerStatus('active');
+      controllerLightsOff();
+      controllerPollLoop();
+    }
+
+    async function connectPhysicalController() {
+      if (controllerConnected || controllerConnecting) return;
+      if (!('serial' in navigator)) { setControllerStatus('needs Chrome or Edge', 'Controllers connect over USB with Web Serial, which only works in Chrome and Edge (not Safari or Firefox).'); return; }
+      if (!window.CoDroneControllerAPI) {
+        setControllerStatus('library not loaded', window.CoDroneControllerError
+          ? 'The controller library could not be downloaded (no internet, or the network blocks it). Use the offline build of the simulator.'
+          : 'The controller library is still loading - try again in a moment.');
+        return;
+      }
+      controllerConnecting = true; setControllerStatus('connecting...');
+      try {
+        await startControllerSession();
+        logConsole('Physical CoDrone controller connected.');
+      } catch (e) {
+        const msg = String((e && e.message) || e);
+        try { if (controllerDrone) await controllerDrone.disconnect(); } catch (_) {}
+        controllerDrone = null; controllerConnected = false; controllerConnecting = false;
+        if (e && e.name === 'NotFoundError') setControllerStatus('none selected', 'No controller was chosen. Plug it in with the USB cable, then try again.');
+        else if (/permission|policy|disallowed|not allowed|security/i.test(msg)) setControllerStatus('blocked by the browser', 'The browser blocked USB access. If the simulator is inside a web page (like a Google Site), open it in its own Chrome tab instead.');
+        else setControllerStatus('connection failed', msg);
+        logConsole('Controller connection failed: ' + msg);
+      }
+    }
+
+    async function disconnectPhysicalController(quiet) {
+      const was = controllerConnected;
+      controllerConnected = false; clearTimeout(controllerL1Timer);
+      if (!quiet) controllerWantsReconnect = false; // the student chose to disconnect: do not reconnect behind their back
+      Object.assign(controllerAxes, { t: 0, yaw: 0, pitch: 0, roll: 0 });
+      try { if (controllerButtonUnsub) controllerButtonUnsub(); } catch (e) {}
+      controllerButtonUnsub = null;
+      const d = controllerDrone; controllerDrone = null;
+      try { if (d) await controllerTimeout(d.disconnect(), 1500); } catch (e) {}
+      if (!quiet) { setControllerStatus('not connected'); if (was) logConsole('Physical CoDrone controller disconnected.'); }
+    }
+
+    // Unplugged and plugged back in: reconnect without a page refresh
+    if ('serial' in navigator) {
+      navigator.serial.addEventListener('disconnect', () => setTimeout(verifyControllerStillThere, 200));
+      navigator.serial.addEventListener('connect', async (e) => {
+        if (!controllerWantsReconnect || controllerConnected || controllerConnecting || !window.CoDroneControllerAPI) return;
+        controllerConnecting = true; setControllerStatus('reconnecting...');
+        try { await controllerSleep(800); await startControllerSession(e.target); logConsole('Controller reconnected.'); }
+        catch (err) { controllerDrone = null; controllerConnected = false; controllerConnecting = false; setControllerStatus('plugged back in', 'Click CONNECT to reconnect.'); }
+      });
+    }
+    window.addEventListener('beforeunload', () => { try { if (controllerDrone) controllerDrone.disconnect(); } catch (e) {} });
+    document.getElementById('btnConnectController').addEventListener('click', connectPhysicalController);
+    document.getElementById('btnDisconnectController').addEventListener('click', () => disconnectPhysicalController());
+    // ===== end controller =====
+
+    function updateSpeedButtons(){[1,2,3].forEach(i=>{const e=document.getElementById("btnSpeedS"+i);if(e)e.className=i===droneState.speedLevel?"px-2.5 py-1 text-[11px] font-bold rounded-md bg-cyan-600 text-black shadow-md transition":"px-2.5 py-1 text-[11px] font-bold rounded-md bg-slate-800 text-slate-300 hover:bg-slate-700 border border-slate-700 transition";});}
+
+    // Flight timer: starts on takeoff, pauses on landing, and resets with RESET.
+    function formatFlightTime(ms){
+      const total=Math.max(0,Math.floor(ms));
+      const minutes=Math.floor(total/60000);
+      const seconds=Math.floor((total%60000)/1000);
+      const millis=total%1000;
+      return `${String(minutes).padStart(2,'0')}:${String(seconds).padStart(2,'0')}.${String(millis).padStart(3,'0')}`;
+    }
+    // ===== Battery =====
+    // CoDrone EDU: 530 mAh battery, about 7-8 minutes of continuous flight (Robolink specifications).
+    // Here: 100% -> 25% in 5 minutes at high speed (S3), a little slower at lower speeds. It drains only while flying.
+    const BATTERY_BASE_RATE = 0.21, BATTERY_SPEED_RATE = 0.04; // % per second = base + speed share (S1 0.22, S2 0.24, S3 0.25)
+    let batteryLastTick = performance.now(), batteryWarned = false;
+    function renderBattery() {
+      const el = document.getElementById('batteryLevel'); if (!el) return;
+      const b = Math.max(0, droneState.battery);
+      el.textContent = Math.round(b) + '%';
+      el.style.color = b > 50 ? '#34d399' : b > 25 ? '#fbbf24' : '#f87171';
+    }
+    function resetBattery() { droneState.battery = 100; batteryWarned = false; droneState.temp = AMBIENT_C; renderBattery(); }
+    // Drone temperature: starts at room temperature, warms while flying (more at higher speed settings) and cools slowly when landed.
+    // It eases toward a target: ~+6 C above room at S1 up to ~+12 C at S3 after a few minutes of flight.
+    const AMBIENT_C = 24.3;
+    const airPressurePa = () => 97951 - 11.9 * (droneState.z / 100); // falls ~12 Pa per metre climbed
+    function updateTemperature(dt) {
+      if (stepWaiter) return; // frozen while the step debugger has the program paused
+      const pct = [0, 0.3, 0.7, 1][droneState.speedLevel] || 0.3;
+      const target = AMBIENT_C + (droneState.isFlying ? 6 + 6 * pct : 0), tau = droneState.isFlying ? 150 : 240; // seconds
+      droneState.temp += (target - droneState.temp) * (1 - Math.exp(-dt / tau));
+    }
+    // LED effects for set_drone_LED_mode: brightness 0..1 over one period (faster speed = shorter period)
+    const LED_MODES = ['solid', 'dimming', 'blink', 'double_blink', 'fade_in', 'fade_out', 'rainbow'];
+    function updateLedAnim() {
+      if (!topLedLight) return;
+      if (!ledAnim) { syncLedGlow(); return; }
+      const T = 2400 / ledAnim.speed, ph = (((performance.now() - ledAnim.t0) % T) + T) % T / T; // 0..1 through each cycle
+      let k = 1;
+      switch (ledAnim.mode) {
+        case 'dimming': k = 0.5 + 0.5 * Math.cos(2 * Math.PI * ph); break;
+        case 'blink': k = ph < 0.5 ? 1 : 0; break;
+        case 'double_blink': k = (ph < 0.12 || (ph > 0.25 && ph < 0.37)) ? 1 : 0; break;
+        case 'fade_in': k = ph; break;
+        case 'fade_out': k = 1 - ph; break;
+      }
+      if (ledAnim.mode === 'rainbow') { // cycles through every hue; the chosen colour is ignored
+        const h = ph * 6, x = 1 - Math.abs(h % 2 - 1), i = Math.floor(h) % 6;
+        const [r, g, b] = [[1, x, 0], [x, 1, 0], [0, 1, x], [0, x, 1], [x, 0, 1], [1, 0, x]][i];
+        setLedRGB(r * 255, g * 255, b * 255, 1);
+      } else setLedRGB(ledAnim.r, ledAnim.g, ledAnim.b, k);
+      syncLedGlow();
+    }
+    // LEDs look much brighter than their raw numbers to the eye, so lift dim values (22 of 255 would be almost invisible on screen)
+    function setLedRGB(r, g, b, k = 1) {
+      const c = v => Math.pow(Math.max(0, Math.min(1, v / 255 * k)), 0.5);
+      topLedLight.material.color.setRGB(c(r), c(g), c(b));
+    }
+    function syncLedGlow() {
+      if (!ledGlow) return;
+      const c = topLedLight.material.color;
+      ledGlow.material.color.copy(c);
+      ledGlow.visible = (c.r + c.g + c.b) > 0.05;
+    }
+    function updateBattery() {
+      const now = performance.now(), dt = Math.min((now - batteryLastTick) / 1000, 0.25); batteryLastTick = now;
+      updateTemperature(dt);
+      if (!droneState.isFlying || stepWaiter) return; // not draining on the ground, or while the step debugger has the program paused
+      const pct = [0, 0.3, 0.7, 1][droneState.speedLevel] || 0.3;
+      droneState.battery = Math.max(0, droneState.battery - (BATTERY_BASE_RATE + BATTERY_SPEED_RATE * pct) * dt);
+      if (!batteryWarned && droneState.battery <= 20) { batteryWarned = true; logConsole('Low battery: 20% left.'); }
+      if (droneState.battery <= 0 && !droneState.isLanding) { logConsole('Battery empty - the drone is landing.'); toggleTakeoffLand(); }
+      renderBattery();
+    }
+    // ===== end Battery =====
+
+    function renderFlightTimer(now=performance.now()){
+      const timer=document.getElementById('flightTimer');
+      if(!timer)return;
+      let shown=flightElapsedMs;
+      if(flightTimerRunning&&flightTimerStartedAt!==null)shown+=now-flightTimerStartedAt;
+      timer.textContent=formatFlightTime(shown);
+    }
+    function startFlightTimer(){
+      if(flightTimerRunning)return;
+      flightTimerStartedAt=performance.now();
+      flightTimerRunning=true;
+      renderFlightTimer(flightTimerStartedAt);
+    }
+    function pauseFlightTimer(now=performance.now()){
+      if(!flightTimerRunning||flightTimerStartedAt===null)return;
+      flightElapsedMs+=now-flightTimerStartedAt;
+      flightTimerStartedAt=null;
+      flightTimerRunning=false;
+      renderFlightTimer(now);
+    }
+    function resetFlightTimer(){
+      flightElapsedMs=0;
+      flightTimerStartedAt=null;
+      flightTimerRunning=false;
+      renderFlightTimer();
+    }
+
+    function updateRefreshMapButton(){
+      const btn=document.getElementById('btnRefreshMap');
+      if(!btn)return;
+      const sensorGroundSelected=document.getElementById('matSelect')?.value==='color';
+      const enabled=sensorGroundSelected&&!droneState.isFlying;
+      btn.disabled=!enabled;
+      btn.title=sensorGroundSelected
+        ? (droneState.isFlying ? 'Land the drone to refresh the Sensor Testing Ground' : 'Generate a new Sensor Testing Ground layout')
+        : 'Select Sensor Testing Ground to refresh the map';
+      btn.className=enabled
+        ? 'mt-2 w-full py-1 px-2 bg-cyan-600 hover:bg-cyan-500 text-black font-bold text-[10px] rounded-md border border-cyan-500 shadow transition flex items-center justify-center gap-1.5 active:scale-95'
+        : 'mt-2 w-full py-1 px-2 bg-slate-800 text-slate-500 font-bold text-[10px] rounded-md border border-slate-700 cursor-not-allowed transition flex items-center justify-center gap-1.5';
+    }
+
+    function refreshSensorTestingGround(){
+      if(droneState.isFlying || document.getElementById('matSelect')?.value!=='color')return;
+      applySensorTestingGround();
+      setFloor('color');
+      updateRefreshMapButton();
+      logConsole('Sensor Testing Ground refreshed with a new layout.');
+    }
+
+    // Toggle Takeoff and Landing
+    function toggleTakeoffLand() {
+      if (!droneState.isFlying) {
+        // Takeoff Sequence
+        droneState.isFlying = true;
+        droneState.isTakingOff = true;
+        startFlightTimer();
+        droneState.targetZ = floorBelow() + 80 + (Math.random() * 8 - 4); // real drone averages ~80 cm and varies a little each run
+        logConsole('Takeoff initiated.');
+        playDroneBuzzer(523, 0.3);
+      } else {
+        // Land Sequence
+        droneState.isLanding = true;
+        droneState.targetZ = 0;
+        logConsole('Landing drone...');
+        playDroneBuzzer(349, 0.4);
+      }
+      updateStatusBadge();
+    }
+
+    // Emergency Stop
+    function emergencyStop() {
+      droneState.isFlying = false;
+      droneState.isTakingOff = false;
+      droneState.isLanding = false;
+      pauseFlightTimer();
+      droneState.z = 0;
+      droneState.targetZ = 0;
+      logConsole('EMERGENCY STOP TRIGGERED! Motors disarmed.');
+      playDroneBuzzer(200, 0.6);
+      updateStatusBadge();
+      updateDroneMeshPosition();
+    }
+
+    // Main Physics and Frame Update Loop
+    function updatePhysics() {
+      const speedCfg = SPEED_SCALES[droneState.speedLevel];
+
+      // Smooth Takeoff / Landing Elevation
+      if (droneState.isTakingOff) {
+        droneState.z += (droneState.targetZ - droneState.z) * 0.08;
+        if (Math.abs(droneState.z - droneState.targetZ) < 1) {
+          droneState.z = droneState.targetZ;
+          droneState.isTakingOff = false;
+          logConsole(`Hover altitude reached (${droneState.z.toFixed(1)} cm).`);
+        }
+      } else if (droneState.isLanding) {
+        droneState.z += (droneState.targetZ - droneState.z) * 0.08;
+        const fl = floorBelow();
+        if (droneState.z < fl + 1) {
+          droneState.z = fl; // 0 = the floor, or the top of the cube it landed on
+          droneState.isFlying = false;
+          droneState.isLanding = false;
+          pauseFlightTimer();
+          logConsole('Drone landed safely.');
+          updateStatusBadge();
+        }
+      }
+
+      // Manual Flying Input Response (Only when airborne)
+      if (droneState.isFlying) {
+        const rad = (droneState.yaw * Math.PI) / 180;
+        const forwardX = Math.sin(rad);
+        const forwardY = Math.cos(rad);
+        const rightX = Math.cos(rad);
+        const rightY = -Math.sin(rad);
+
+        // WASD Controls:
+        // W/S: Throttle Altitude Up/Down
+        if (keysPressed['KeyW']) droneState.z += speedCfg.linear;
+        if (keysPressed['KeyS']) droneState.z = Math.max(0, droneState.z - speedCfg.linear);
+
+        // A/D: Yaw Left/Right
+        if (keysPressed['KeyA']) droneState.yaw = (droneState.yaw - speedCfg.rotation + 360) % 360;
+        if (keysPressed['KeyD']) droneState.yaw = (droneState.yaw + speedCfg.rotation) % 360;
+
+        // Arrow Key Controls:
+        // Up/Down: Pitch Forward/Backward
+        if (keysPressed['ArrowUp']) {
+          droneState.x += forwardX * speedCfg.linear;
+          droneState.y += forwardY * speedCfg.linear;
+        }
+        if (keysPressed['ArrowDown']) {
+          droneState.x -= forwardX * speedCfg.linear;
+          droneState.y -= forwardY * speedCfg.linear;
+        }
+
+        // Left/Right: Roll Left/Right
+        if (keysPressed['ArrowLeft']) {
+          droneState.x -= rightX * speedCfg.linear;
+          droneState.y -= rightY * speedCfg.linear;
+        }
+        if (keysPressed['ArrowRight']) {
+          droneState.x += rightX * speedCfg.linear;
+          droneState.y += rightY * speedCfg.linear;
+        }
+
+        // Physical controller sticks (ignored while a Python program is flying, or if the readings are stale)
+        const ctl = controllerInput();
+        if (ctl) {
+          droneState.z = Math.max(0, droneState.z + ctl.t * speedCfg.linear);
+          droneState.yaw = (droneState.yaw + ctl.yaw * speedCfg.rotation + 360) % 360;
+          droneState.x += (forwardX * ctl.pitch + rightX * ctl.roll) * speedCfg.linear;
+          droneState.y += (forwardY * ctl.pitch + rightY * ctl.roll) * speedCfg.linear;
+        }
+
+        // Keep drone within the 10' x 12' mat (305cm x 366cm); flashes the edge when it is reached
+        clampToMat();
+        droneState.z = Math.max(0, Math.min(CEIL_LIMIT, droneState.z));
+      }
+
+      // Calculate Sensors & Update 3D Mesh
+      calculateSensors();
+      updateDroneMeshPosition();
+      updateTrail();
+    }
+
+    // Calculate Telemetry & Sensor Values
+    // The colour under the drone, read live (so a program sees it the instant it lands), or null if it is flying / over no colour.
+    // Covers the Sensor Testing Ground circles and the coloured pads and mats of a map.
+    const COLOR_NAMES = { '#ef4444': 'Red', '#22c55e': 'Green', '#3b82f6': 'Blue', '#eab308': 'Yellow' };
+    function groundColor() {
+      if (droneState.isFlying) return null; // the real drone only reads color while it is sitting on the surface
+      let found = null;
+      if (currentMatType === 'color') {
+        for (const t of COLOR_TARGETS) if (Math.hypot(droneState.x - t.x, droneState.y - t.y) <= t.r) found = { name: t.name, hex: t.hex };
+      }
+      for (const p of activePieces) {
+        const d = p.def, it = p.item, name = COLOR_NAMES[(d.color || '').toLowerCase()];
+        if (!name || (d.kind !== 'pad' && d.kind !== 'mat')) continue;
+        const dx = droneState.x - it.x, dy = droneState.y - it.y, t = it.rot * Math.PI / 180;
+        const lx = dx * Math.cos(t) - dy * Math.sin(t), ly = dx * Math.sin(t) + dy * Math.cos(t);
+        const on = d.kind === 'pad' ? Math.hypot(dx, dy) <= d.r : Math.abs(lx) <= d.w / 2 && Math.abs(ly) <= d.d / 2;
+        if (on) found = { name, hex: d.color };
+      }
+      return found;
+    }
+    function colorReading(kind) { // what get_front_color / get_back_color return
+      const gc = groundColor(), k = String(kind == null ? 'color' : kind).toLowerCase();
+      const rgb = gc ? [1, 3, 5].map(i => parseInt(gc.hex.slice(i, i + 2), 16)) : [0, 0, 0];
+      if (k === 'rgb') return rgb;
+      if (k === 'hsv' || k === 'hsl') {
+        const [r, g, b] = rgb.map(v => v / 255), mx = Math.max(r, g, b), mn = Math.min(r, g, b), dl = mx - mn;
+        let h = dl === 0 ? 0 : mx === r ? ((g - b) / dl) % 6 : mx === g ? (b - r) / dl + 2 : (r - g) / dl + 4;
+        h = Math.round(((h * 60) + 360) % 360);
+        return [h, Math.round((mx === 0 ? 0 : dl / mx) * 100), Math.round(mx * 100)];
+      }
+      return gc ? gc.name : 'Unknown';
+    }
+
+    function calculateSensors() {
+      // Front Laser Distance to Arena Boundary Wall
+      const rad = (droneState.yaw * Math.PI) / 180;
+      const dirX = Math.sin(rad);
+      const dirY = Math.cos(rad);
+
+      let minDist = 999;
+
+      // Check distance to 4 boundary planes (X=0, X=305, Y=0, Y=366)
+      if (dirX > 0) minDist = Math.min(minDist, (MAT_WIDTH - droneState.x) / dirX);
+      if (dirX < 0) minDist = Math.min(minDist, (0 - droneState.x) / dirX);
+      if (dirY > 0) minDist = Math.min(minDist, (MAT_LENGTH - droneState.y) / dirY);
+      if (dirY < 0) minDist = Math.min(minDist, (0 - droneState.y) / dirY);
+
+      const wall = Math.max(0, minDist);
+      const piece = rayHitDistance(droneState.x, droneState.y, Math.max(droneState.z, 3), dirX, dirY, Math.min(wall, 300)); // beam travels at the drone's height
+      droneState.frontRange = Math.round(piece !== null ? Math.min(piece, wall) : wall);
+
+      // Bottom range sensor: height above the floor, or above a cube it is over
+      droneState.bottomRange = Math.max(0, droneState.z - surfaceUnder());
+      if (downLaserRay) {
+        const dl = droneState.bottomRange <= 150 ? Math.max(droneState.bottomRange, 3) : 200;
+        const dp = downLaserRay.geometry.attributes.position;
+        if (dp.getY(1) !== -dl) { dp.setY(1, -dl); dp.needsUpdate = true; downLaserRay.computeLineDistances(); }
+      }
+
+      // Red laser beam: stops where it hits something within the sensor's 1.5 m range; otherwise it runs off into the distance
+      if (frontLaserRay) {
+        const len = droneState.frontRange <= 150 ? Math.max(droneState.frontRange, 9) : 300;
+        const pos = frontLaserRay.geometry.attributes.position;
+        if (pos.getZ(1) !== -len) { pos.setZ(1, -len); pos.needsUpdate = true; frontLaserRay.computeLineDistances(); }
+      }
+
+      // Ground Color Sensor Detection - the real drone only reads color while it is sitting on the surface
+      let detectedColor = 'None';
+      let swatchHex = '#475569';
+
+      const gc = groundColor();
+      if (gc) { detectedColor = gc.name; swatchHex = gc.hex; }
+      droneState.detectedColor = detectedColor;
+
+      // Update DOM Telemetry Display
+      // Position is shown relative to the drone's start position (0,0,0 before takeoff)
+      const relX = droneState.x - START_POS.x, relY = droneState.y - START_POS.y;
+      const z0 = v => (Math.abs(v) < 0.005 ? 0 : v); // avoid showing "-0.0"
+      document.getElementById('telemetryX').innerText = `${z0(relX).toFixed(1)} cm`;
+      document.getElementById('telemetryXFt').innerText = `${z0(relX / 30.48).toFixed(2)} ft`;
+
+      document.getElementById('telemetryY').innerText = `${z0(relY).toFixed(1)} cm`;
+      document.getElementById('telemetryYFt').innerText = `${z0(relY / 30.48).toFixed(2)} ft`;
+
+      document.getElementById('telemetryZ').innerText = `${droneState.z.toFixed(1)} cm`;
+      document.getElementById('telemetryZFt').innerText = `${(droneState.z / 30.48).toFixed(2)} ft`;
+
+      document.getElementById('telemetryFront').innerText = `${droneState.frontRange} cm`;
+      document.getElementById('telemetryYaw').innerText = `${droneState.yaw.toFixed(1)}°`;
+
+      document.getElementById('telemetryTemp').innerText = `${droneState.temp.toFixed(1)} °C`;
+      document.getElementById('telemetryTempF').innerText = `${(droneState.temp * 9 / 5 + 32).toFixed(1)} °F`;
+      const pa = airPressurePa();
+      document.getElementById('telemetryPressure').innerText = `${Math.round(pa)} Pa`;
+      document.getElementById('telemetryPressureMb').innerText = `${(pa / 100).toFixed(2)} mbar`;
+
+      document.getElementById('telemetryColor').innerText = detectedColor;
+      document.getElementById('colorSwatch').style.backgroundColor = swatchHex;
+    }
+
+    function updateStatusBadge() {
+      const badge = document.getElementById('flightStatusBadge');
+      const takeoffBtnText = document.getElementById('takeoffBtnText');
+
+      if (droneState.isFlying) {
+        badge.innerText = 'AIRBORNE';
+        badge.className = 'px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-950 text-emerald-400 border border-emerald-800 animate-pulse';
+        takeoffBtnText.innerText = 'LAND';
+      } else {
+        badge.innerText = 'LANDED';
+        badge.className = 'px-2 py-0.5 rounded text-[10px] font-bold bg-slate-800 text-slate-400 border border-slate-700';
+        takeoffBtnText.innerText = 'TAKEOFF';
+      }
+      updateRefreshMapButton();
+    }
+
+    // Python Interpreter Simulation Engine
+    let isScriptRunning = false;
+    let scriptAbort = false;
+    let scriptVars = {};
+    function argNum(line, fallback) {
+      const m = line.match(/\(([^)]*)\)/);
+      const v = m ? parseFloat(m[1]) : NaN;
+      return isNaN(v) ? fallback : v;
+    }
+
+    // ===== Python (Blockly export) -> JavaScript transpiler =====
+    const ABORT = { aborted: true };
+    const PY_KW = [[/\bTrue\b/g, 'true'], [/\bFalse\b/g, 'false'], [/\bNone\b/g, 'null'], [/\band\b/g, '&&'], [/\bor\b/g, '||'],
+      [/\bnot\s+/g, '!'], [/(\w+)\s*\/\/\s*(\w+)/g, 'Math.floor($1/$2)'], [/\.append\(/g, '.push(']];
+
+    function stripComment(l) {
+      let q = null;
+      for (let i = 0; i < l.length; i++) {
+        const c = l[i];
+        if (q) { if (c === '\\') i++; else if (c === q) q = null; }
+        else if (c === '"' || c === "'") q = c;
+        else if (c === '#') return l.slice(0, i);
+      }
+      return l;
+    }
+
+    // Wrap calls like drone.x(...) as (await drone.x(...)) so awaiting binds to the whole call
+    function awaitCalls(s, reSrc) {
+      const re = new RegExp(reSrc, 'g');
+      let out = '', i = 0, m;
+      while ((m = re.exec(s))) {
+        let j = m.index + m[0].length, depth = 1, q = null;
+        for (; j < s.length && depth; j++) {
+          const c = s[j];
+          if (q) { if (c === '\\') j++; else if (c === q) q = null; }
+          else if (c === '"' || c === "'") q = c;
+          else if (c === '(') depth++;
+          else if (c === ')') depth--;
+        }
+        const inner = awaitCalls(s.slice(m.index + m[0].length, j - 1), reSrc);
+        out += s.slice(i, m.index) + '(await ' + m[0] + inner + '))';
+        i = j; re.lastIndex = j;
+      }
+      return out + s.slice(i);
+    }
+
+    const PY_SIGS = { circle: ['speed', 'direction', 'spiral'], triangle: ['speed', 'seconds', 'direction'], square: ['speed', 'seconds', 'direction'],
+                      avoid_wall: ['timeout', 'distance'], keep_distance: ['timeout', 'distance'] };
+    function pyExpr(s, callSrc) {
+      s = s.split(/("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')/).map((p, i) => {
+        if (i % 2) return p;
+        PY_KW.forEach(([a, b]) => { p = p.replace(a, b); });
+        p = p.replace(/drone\.(\w+)\(([^()]*)\)/g, (m, n, a) => { // keyword arguments -> the right positional slot, e.g. circle(direction=1)
+          const sig = PY_SIGS[n];
+          if (!sig || !/[A-Za-z_]\w*\s*=(?!=)/.test(a)) return m;
+          const arr = []; let pos = 0;
+          for (const arg of a.split(',')) {
+            const kw = arg.match(/^\s*([A-Za-z_]\w*)\s*=(?!=)\s*([\s\S]*)$/);
+            if (kw && sig.includes(kw[1])) arr[sig.indexOf(kw[1])] = kw[2].trim(); else arr[pos++] = arg.trim();
+          }
+          return 'drone.' + n + '(' + Array.from(arr, v => v === undefined ? 'undefined' : v).join(', ') + ')';
+        });
+        return p.replace(/([(,]\s*)[A-Za-z_]\w*=(?!=)/g, '$1'); // drop keyword-argument names
+      }).join('');
+      return awaitCalls(s, callSrc);
+    }
+
+    function transpilePython(src) {
+      const defs = [...src.matchAll(/^\s*def\s+(\w+)/gm)].map(m => m[1]);
+      const callSrc = '\\b(?:drone\\.\\w+|time\\.sleep' + defs.map(d => '|' + d).join('') + ')\\(';
+      const ex = (e) => pyExpr(e, callSrc);
+      const stack = [], out = [];
+      let fnGlobals = new Set();
+      src.split('\n').forEach((raw, n) => {
+        const line = stripComment(raw.replace(/\t/g, '    ')).replace(/\s+$/, '');
+        if (!line.trim()) { out.push(''); return; }
+        const ind = line.match(/^ */)[0].length, t = line.trim();
+        const cont = /^(elif\b|else\s*:)/.test(t), H = `await __line(${n + 1}); `;
+        let pre = '';
+        while (stack.length && (stack[stack.length - 1].ind > ind || (!cont && stack[stack.length - 1].ind === ind))) {
+          if (stack.pop().fn) fnGlobals = new Set();
+          pre += '} ';
+        }
+        let m, js;
+        try {
+          if (/^(import|from)\s/.test(t) || /^\w+\s*=\s*Drone\(\)/.test(t) || t === 'pass') js = '';
+          else if ((m = t.match(/^global\s+(.+)$/))) { m[1].split(',').forEach(v => fnGlobals.add(v.trim())); js = ''; }
+          else if ((m = t.match(/^if\s+(.+):$/))) { js = `${H}if (${ex(m[1])}) {`; stack.push({ ind }); }
+          else if ((m = t.match(/^elif\s+(.+):$/))) js = `} else if (${ex(m[1])}) {`;
+          else if (/^else\s*:$/.test(t)) js = '} else {';
+          else if ((m = t.match(/^while\s+(.+):$/))) { js = `while (${ex(m[1])}) { ${H}await __tick();`; stack.push({ ind }); }
+          else if ((m = t.match(/^for\s+(\w+)\s+in\s+(.+):$/))) { js = `for (let ${m[1]} of ${ex(m[2])}) { ${H}__v('${m[1]}', ${m[1]}); await __tick();`; stack.push({ ind }); }
+          else if ((m = t.match(/^def\s+(\w+)\s*\((.*)\)\s*:$/))) { js = `async function ${m[1]}(${m[2]}) { ` + m[2].split(',').map(q => q.split('=')[0].trim()).filter(Boolean).map(q => `__v('${q}', ${q});`).join(' '); stack.push({ ind, fn: true }); }
+          else if ((m = t.match(/^([A-Za-z_]\w*(?:\[[^\]]*\])*)\s*([+\-*/%]?)=(?!=)\s*(.+)$/))) {
+            const plain = /^\w+$/.test(m[1]) && !m[2] && !fnGlobals.has(m[1]);
+            const nm = m[1].match(/^\w+/)[0];
+            js = `${H}${plain ? 'var ' : ''}${m[1]} ${m[2]}= ${ex(m[3])}; __v('${nm}', ${nm});`;
+          }
+          else js = H + ex(t) + ';';
+        } catch (e) { throw new Error(`Line ${n + 1}: ${e.message}`); }
+        out.push(pre + js);
+      });
+      out.push('}'.repeat(stack.length));
+      return out.join('\n');
+    }
+    // ---- runtime ----
+
+    const pyRepr = v => typeof v === 'string' ? `'${v}'` : pyStr(v);
+    const pyStr = v => v === null || v === undefined ? 'None' : v === true ? 'True' : v === false ? 'False'
+      : Array.isArray(v) ? '[' + v.map(pyRepr).join(', ') + ']' : String(v);
+
+    function makePyEnv() {
+      const U = { cm: 1, mm: 0.1, m: 100, in: 2.54, ft: 30.48 };
+      const toCm = (v, u) => v * (U[u] || 1), fromCm = (v, u) => Math.round(v / (U[u] || 1) * 10) / 10;
+      const rad = d => d * Math.PI / 180, clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+      const wait = async (ms) => { if (scriptAbort) throw ABORT; await sleep(ms); if (scriptAbort) throw ABORT; };
+      // Estimated flight rates per 1% power (tune against the real drone): cm/s and deg/s
+      const RATE = { lin: 1.0, yaw: 1.8 };
+      const fv = { roll: 0, pitch: 0, yaw: 0, throttle: 0 };
+      const ref = { x: START_POS.x, y: START_POS.y, yaw: 0 }; // sensor origin = the drone's start position
+      const airborne = () => { if (!droneState.isFlying) { logConsole('Drone is not flying - call drone.takeoff() first.'); return false; } return true; };
+      const bound = () => { const hit = clampToMat(); droneState.z = clamp(droneState.z, 0, CEIL_LIMIT); return hit; };
+      const moveFor = async (sec) => {
+        if (!airborne()) return;
+        let last = performance.now();
+        const end = last + sec * 1000;
+        do {
+          await wait(16);
+          const now = performance.now(), dt = (now - last) / 1000; last = now;
+          const r = rad(droneState.yaw), f = fv.pitch * RATE.lin * dt, s = fv.roll * RATE.lin * dt;
+          droneState.x += Math.sin(r) * f + Math.cos(r) * s;
+          droneState.y += Math.cos(r) * f - Math.sin(r) * s;
+          droneState.z += fv.throttle * RATE.lin * dt;
+          droneState.yaw = (droneState.yaw - fv.yaw * RATE.yaw * dt + 360) % 360;
+          if (bound()) break;
+        } while (performance.now() < end);
+      };
+      const vMove = async (cm) => {
+        if (!airborne()) return;
+        for (let s = 0; s < Math.abs(cm) / 2; s++) { await wait(20); droneState.z = Math.max(0, droneState.z + 2 * Math.sign(cm)); if (clampToMat()) break; }
+      };
+      const rel = () => { // position relative to the start position (x = right, y = forward)
+        const dx = droneState.x - ref.x, dy = droneState.y - ref.y, r = rad(ref.yaw);
+        return { x: dx * Math.cos(r) - dy * Math.sin(r), y: dx * Math.sin(r) + dy * Math.cos(r), z: droneState.z };
+      };
+      const led = (r, g, b, br = 255) => { ledAnim = null; ledSolid(r, g, b, br); };
+      const ledSolid = (r, g, b, br = 255) => setLedRGB(r, g, b, br / 255);
+      // Plays a note (Hz, or Note.C4 etc.) for a duration in milliseconds, then moves on - like the real buzzer
+      const playNote = async (hz, ms, log) => {
+        hz = Number(hz); ms = Number(ms) || 0;
+        if (isNaN(hz)) { logConsole('Unknown note - skipped.'); return; }
+        if (log) logConsole(hz > 0 ? `♪ ${Math.round(hz)} Hz for ${ms} ms` : `(rest ${ms} ms)`);
+        if (hz > 0) playTone(hz, ms / 1000);
+        await wait(ms);
+      };
+      const tone = (hz = 440, ms = 300) => playNote(hz, ms, true);
+      const jingles = { success: [523, 659, 784, 1047], warning: [440, 0, 440, 0, 440], error: [330, 262, 196] };
+      // Built-in sound sequences (success / warning / error)
+      const sequence = async (kind) => {
+        const m = String(kind).toLowerCase().match(/success|warn|error/);
+        const name = !m ? 'success' : m[0] === 'warn' ? 'warning' : m[0];
+        if (!m) logConsole(`Unrecognized sound sequence ${pyRepr(kind)} - playing the success sound.`);
+        else logConsole(`♪ ${name} sound`);
+        for (const hz of jingles[name]) await playNote(hz, 130, false);
+      };
+      const NOTE_BASE = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
+      const Note = new Proxy({}, { get: (_, k) => {
+        k = String(k);
+        if (/^(mute|fin)$/i.test(k)) return 0;
+        const m = k.match(/^([A-Ga-g])(S|s|#|B|b)?(\d)$/);
+        if (!m) return undefined;
+        const semi = NOTE_BASE[m[1].toUpperCase()] + (!m[2] ? 0 : /^[Ss#]$/.test(m[2]) ? 1 : -1);
+        return Math.round(440 * 2 ** ((semi + 12 * (+m[3] + 1) - 69) / 12) * 100) / 100; // equal temperament, A4 = 440 Hz
+      } });
+      const dirs = { forward: ['pitch', 1], backward: ['pitch', -1], right: ['roll', 1], left: ['roll', -1], up: ['throttle', 1], down: ['throttle', -1] };
+
+      const api = {
+        pair() { logConsole('Paired with simulated CoDrone EDU.'); }, close() {},
+        async takeoff() {
+          if (!droneState.isFlying) toggleTakeoffLand();
+          while (droneState.isTakingOff && !boundaryHit) await wait(30);
+          await wait(300);
+        },
+        async land() {
+          if (droneState.isFlying && !droneState.isLanding) toggleTakeoffLand();
+          while (droneState.isFlying && !boundaryHit) await wait(30);
+        },
+        hover(s = 1) { return wait(s * 1000); },
+        // ---- Flips and automatic flight patterns (Blockly "flip", "circle", "triangle", "square", "sway", "avoid wall", "keep distance") ----
+        async flip(direction = 'back') {
+          if (!airborne()) return;
+          const dir = String(direction).toLowerCase();
+          const spec = { back: ['flipPitch', 1], front: ['flipPitch', -1], left: ['flipRoll', 1], right: ['flipRoll', -1] }[dir];
+          if (!spec) { logConsole(`flip: unknown direction "${direction}" - use front, back, left or right.`); return; }
+          const frames = 36;
+          try {
+            for (let i = 1; i <= frames; i++) { await wait(16); droneState[spec[0]] = spec[1] * 2 * Math.PI * i / frames; }
+          } finally { droneState.flipPitch = 0; droneState.flipRoll = 0; }
+          await wait(200);
+        },
+        async circle(speed = 75, direction = 1, spiral = false) {
+          if (!airborne()) return;
+          const R = 50, ds = 2, steps = Math.round(2 * Math.PI * R / ds), turn = (ds / R) * 180 / Math.PI * (direction >= 0 ? 1 : -1);
+          const startZ = droneState.z, startYaw = droneState.yaw;
+          for (let i = 1; i <= steps; i++) {
+            await wait(20);
+            droneState.yaw = (droneState.yaw + turn / 2 + 720) % 360;
+            const r = rad(droneState.yaw);
+            droneState.x += Math.sin(r) * ds; droneState.y += Math.cos(r) * ds;
+            droneState.yaw = (droneState.yaw + turn / 2 + 720) % 360;
+            if (spiral) droneState.z = startZ + 50 * i / steps;
+            if (clampToMat()) return;
+          }
+          droneState.yaw = startYaw;
+        },
+        async triangle(speed = 100, seconds = 1, direction = 1) {
+          if (!airborne()) return;
+          const side = Math.max(10, Math.abs(speed) * Math.abs(seconds)), sgn = direction >= 0 ? 1 : -1;
+          for (const h of [30, 150, 270]) { await executeMoveForward(side, sgn * h); if (boundaryHit) return; }
+        },
+        async square(speed = 100, seconds = 1, direction = 1) {
+          if (!airborne()) return;
+          const side = Math.max(10, Math.abs(speed) * Math.abs(seconds)), sgn = direction >= 0 ? 1 : -1;
+          for (const h of [0, 90, 180, 270]) { await executeMoveForward(side, sgn * h); if (boundaryHit) return; }
+        },
+        async sway() {
+          if (!airborne()) return;
+          for (const d of [20, -40, 40, -40, 40, -20]) { await executeMoveForward(Math.abs(d), d > 0 ? 90 : -90); if (boundaryHit) return; }
+        },
+        async avoid_wall(timeout = 10, distance = 50) { // fly forward and stop short of whatever is ahead
+          if (!airborne()) return;
+          const end = performance.now() + timeout * 1000;
+          while (performance.now() < end) {
+            if (droneState.frontRange <= distance) { logConsole(`avoid_wall: stopped ${droneState.frontRange} cm from the obstacle.`); return; }
+            await executeMoveForward(2, 0); if (boundaryHit) return;
+            await wait(0);
+          }
+        },
+        async keep_distance(timeout = 10, distance = 50) { // hold a set distance from whatever is in front, for timeout seconds
+          if (!airborne()) return;
+          const end = performance.now() + timeout * 1000;
+          while (performance.now() < end) {
+            const fr = droneState.frontRange;
+            if (fr <= 150 && Math.abs(fr - distance) > 3) {
+              await executeMoveForward(Math.max(-2, Math.min(2, (fr - distance) * 0.15)), 0); if (boundaryHit) return;
+            }
+            await wait(20);
+          }
+        },
+        async move_forward(d = 50, u) { await executeMoveForward(toCm(d, u), 0); },
+        async move_backward(d = 50, u) { await executeMoveForward(toCm(d, u), 180); },
+        async move_left(d = 50, u) { await executeMoveForward(toCm(d, u), -90); },
+        async move_right(d = 50, u) { await executeMoveForward(toCm(d, u), 90); },
+        move_upward(d = 50, u) { return vMove(toCm(d, u)); },
+        move_downward(d = 50, u) { return vMove(-toCm(d, u)); },
+        async turn_left(d = 90) { await executeTurn(-d); },
+        async turn_right(d = 90) { await executeTurn(d); },
+        set_roll(p) { fv.roll = p; }, set_pitch(p) { fv.pitch = p; }, set_yaw(p) { fv.yaw = p; }, set_throttle(p) { fv.throttle = p; },
+        move(s = 0.01) { return moveFor(s); },
+        async go(dir = 'forward', p = 50, s = 1) {
+          const d = dirs[String(dir).toLowerCase()];
+          if (!d) { logConsole(`Unknown direction: ${dir}`); return; }
+          fv[d[0]] = d[1] * p; await moveFor(s); fv[d[0]] = 0;
+        },
+        async send_absolute_position(x = 0, y = 0, z = 0, v = 1) {
+          if (!airborne()) return;
+          const r = rad(ref.yaw), tx = ref.x + x * 100 * Math.cos(r) + y * 100 * Math.sin(r);
+          const ty = ref.y - x * 100 * Math.sin(r) + y * 100 * Math.cos(r), tz = z * 100;
+          const steps = Math.max(1, Math.ceil(Math.hypot(tx - droneState.x, ty - droneState.y, tz - droneState.z) / (Math.max(0.1, v) * 100 * 0.02)));
+          const sx = droneState.x, sy = droneState.y, sz = droneState.z;
+          for (let i = 1; i <= steps; i++) {
+            await wait(20);
+            droneState.x = sx + (tx - sx) * i / steps; droneState.y = sy + (ty - sy) * i / steps; droneState.z = sz + (tz - sz) * i / steps;
+            if (bound()) break;
+          }
+        },
+        set_drone_LED(r, g, b, br) { led(r, g, b, br); },
+        set_drone_LED_mode(r = 0, g = 0, b = 0, mode = 'solid', speed = 1) {
+          const m = String(mode).toLowerCase().replace(/[\s-]+/g, '_');
+          if (!LED_MODES.includes(m)) { logConsole(`set_drone_LED_mode: unknown mode "${mode}" - using solid. Modes: ${LED_MODES.join(', ')}.`); }
+          if (m === 'solid' || !LED_MODES.includes(m)) { led(r, g, b, 255); return; }
+          logConsole(`LED ${m} effect: RGB (${r}, ${g}, ${b}), speed ${speed}.`);
+          ledAnim = { r, g, b, mode: m, speed: Math.max(1, Math.min(10, +speed || 1)), t0: performance.now() };
+        }, drone_LED_off() { led(0, 0, 0); },
+        drone_buzzer: tone, drone_buzzer_hertz: tone, controller_buzzer: tone, controller_buzzer_hertz: tone,
+        drone_buzzer_sequence: sequence, controller_buzzer_sequence: sequence,
+        start_drone_buzzer(hz = 440) { logConsole(`♪ ${Math.round(hz)} Hz (until stop_drone_buzzer)`); startTone(hz); },
+        stop_drone_buzzer() { stopTone(); },
+        start_controller_buzzer(hz = 440) { startTone(hz); }, stop_controller_buzzer() { stopTone(); },
+        get_front_range(u) { return fromCm(droneState.frontRange > 150 ? 999.9 : droneState.frontRange, u); },
+        get_bottom_range(u) { return fromCm(droneState.bottomRange > 150 ? 999.9 : droneState.bottomRange, u); },
+        get_height(u) { return fromCm(droneState.bottomRange > 150 ? 999.9 : droneState.bottomRange, u); },
+        get_pos_x(u) { return fromCm(rel().x, u); }, get_pos_y(u) { return fromCm(rel().y, u); }, get_pos_z(u) { return fromCm(rel().z, u); },
+        get_angle_z() { return Math.round(((droneState.yaw - ref.yaw + 540) % 360) - 180); },
+        get_battery() { return Math.round(Math.max(0, droneState.battery)); },
+        get_drone_temperature(u = 'C') {
+          const c = droneState.temp + (Math.random() - 0.5) * 0.1, k = String(u)[0].toLowerCase(); // tiny sensor noise
+          return Math.round((k === 'f' ? c * 9 / 5 + 32 : k === 'k' ? c + 273.15 : c) * 10) / 10;
+        },
+        get_pressure(u = 'Pa') { // air pressure falls about 12 Pa for every metre climbed (standard atmosphere), plus a little sensor noise
+          const pa = airPressurePa() + (Math.random() - 0.5) * 8;
+          return /^m/i.test(String(u)) ? Math.round(pa) / 100 : Math.round(pa);
+        },
+        get_accel_x() { return 0; }, get_accel_y() { return 0; }, get_accel_z() { return 98; },
+        get_angle_x() { return 0; }, get_angle_y() { return 0 },
+        get_angular_speed_x() { return 0; }, get_angular_speed_y() { return 0; }, get_angular_speed_z() { return 0; },
+        reset_gyro() {},
+        get_front_color(kind) { return colorReading(kind); },
+        get_back_color(kind) { return colorReading(kind); }
+      };
+      const drone = new Proxy(api, {
+        get: (t, k) => {
+          if (k in t) {
+            const f = t[k];
+            return async (...a) => {
+              lastCall = `drone.${String(k)}(${a.map(pyRepr).join(', ')})`;
+              const r = await f(...a);
+              if (boundaryHit) throw boundaryError(); // reached the edge of the mat: stop the program
+              return r;
+            };
+          }
+          const name = String(k), m = name.match(/success|warning|error/i); // built-in sound sequences
+          if (m && /sound|buzzer|beep|sequence|melody/i.test(name)) return () => sequence(m[0]);
+          return (...a) => logConsole(`drone.${name}(${a.map(pyRepr).join(', ')}) is not supported in the simulator yet - skipped.`);
+        }
+      });
+      const range = (a, b, s = 1) => { if (b === undefined) { b = a; a = 0; } const r = []; for (let i = a; s > 0 ? i < b : i > b; i += s) r.push(i); return r; };
+      return {
+        drone, Note, range, __tick: () => wait(10), __line: dbgLine, __v: dbgVar,
+        time: { sleep: s => wait(s * 1000) },
+        random: { randint: (a, b) => Math.floor(Math.random() * (b - a + 1)) + a, uniform: (a, b) => a + Math.random() * (b - a),
+                  choice: l => l[Math.floor(Math.random() * l.length)], random: Math.random },
+        math: Object.assign({}, Math, { pi: Math.PI }),
+        print: (...a) => logConsole(a.map(pyStr).join(' ')),
+        len: x => x.length, int: x => Math.trunc(Number(x)), float: Number, str: pyStr, abs: Math.abs, sum: l => l.reduce((a, b) => a + b, 0),
+        round: (x, n = 0) => Math.round(x * 10 ** n) / 10 ** n,
+        min: (...a) => Math.min(...(a.length === 1 ? a[0] : a)), max: (...a) => Math.max(...(a.length === 1 ? a[0] : a))
+      };
+    }
+
+    // ===== Map Editor tab + 3D map pieces =====
+    const MapEditor = (() => {
+      const IN = 2.54, W = MAT_WIDTH, L = MAT_LENGTH;
+      // One Aerial Drone Competition Field Elements Kit (cm; REC Mission 2027 game manual)
+      const KIT = [
+        { id: 'arch_red',   name: 'Red Arch Gate',       short: 'Red Arch',        qty: 1, kind: 'gate', w: 102 * IN, d: 12, open: 60 * IN, color: '#ef4444' },
+        { id: 'arch_blue',  name: 'Blue Arch Gate',      short: 'Blue Arch',       qty: 1, kind: 'gate', w: 102 * IN, d: 12, open: 60 * IN, color: '#3b82f6' },
+        { id: 'key_yellow', name: 'Yellow Keyhole Gate', short: 'Yellow Keyhole',  qty: 1, kind: 'gate', w: 30 * IN,  d: 6,  open: 24 * IN, color: '#eab308' },
+        { id: 'key_green',  name: 'Green Keyhole Gate',  short: 'Green Keyhole',   qty: 1, kind: 'gate', w: 30 * IN,  d: 6,  open: 24 * IN, color: '#22c55e' },
+        { id: 'pad_red',    name: 'Red Landing Pad',     short: 'Red Pad',         qty: 1, kind: 'pad',  r: 15 * IN, bull: 5 * IN, color: '#ef4444' },
+        { id: 'pad_blue',   name: 'Blue Landing Pad',    short: 'Blue Pad',        qty: 1, kind: 'pad',  r: 15 * IN, bull: 5 * IN, color: '#3b82f6' },
+        { id: 'cube_small', name: 'Blue Cube (12")',     short: 'Blue Cube 12"',   qty: 1, kind: 'cube', w: 12 * IN, d: 12 * IN, h: 13 * IN, color: '#3b82f6' },
+        { id: 'cube_large', name: 'Red Cube (18")',      short: 'Red Cube 18"',    qty: 1, kind: 'cube', w: 17 * IN, d: 17 * IN, h: 20 * IN, color: '#ef4444' },
+        { id: 'cmat1',      name: 'Color Mat 1',         short: 'Color Mat 1',     qty: 1, kind: 'mat',  w: 60, d: 60, color: '#ef4444' },
+        { id: 'cmat2',      name: 'Color Mat 2',         short: 'Color Mat 2',     qty: 1, kind: 'mat',  w: 60, d: 60, color: '#22c55e' },
+        { id: 'cmat3',      name: 'Color Mat 3',         short: 'Color Mat 3',     qty: 1, kind: 'mat',  w: 60, d: 60, color: '#3b82f6' },
+        { id: 'sensor_wall', name: 'Sensor Wall',       short: 'Sensor Wall',     qty: 1, kind: 'wall', w: 50, d: 10, h: 100, color: '#64748b' },
+        { id: 'tunnel',     name: 'Tunnel',              short: 'Tunnel',          qty: 1, kind: 'tunnel', w: 23.5 * IN, d: 19 * IN, color: '#94a3b8' }
+      ];
+      const DEF = Object.fromEntries(KIT.map(k => [k.id, k]));
+      let items = [], armed = null, sel = null, hover = null, drag = null, s = 1, ox = 0, oy = 0, cv, ctx;
+      const q = id => document.getElementById('me' + id);
+      const used = id => items.filter(i => i.type === id).length;
+      const cl = (v, a, b) => Math.max(a, Math.min(b, v));
+      const r1 = v => Math.round(v * 10) / 10;
+      const say = t => { q('Msg').textContent = t; };
+      const snapv = v => q('Snap').checked ? Math.round(v / 5) * 5 : v;
+      const toS = (x, y) => [ox + x * s, oy + (L - y) * s];
+      const toM = (px, py) => [(px - ox) / s, L - (py - oy) / s];
+
+      function hitTest(x, y) {
+        for (let n = items.length - 1; n >= 0; n--) {
+          const it = items[n], d = DEF[it.type], dx = x - it.x, dy = y - it.y, t = it.rot * Math.PI / 180;
+          const lx = dx * Math.cos(t) - dy * Math.sin(t), ly = dx * Math.sin(t) + dy * Math.cos(t);
+          if (d.kind === 'pad' ? Math.hypot(dx, dy) <= d.r : Math.abs(lx) <= d.w / 2 + 3 && Math.abs(ly) <= d.d / 2 + 3) return it;
+        }
+        return null;
+      }
+      // positions in map codes and saved maps are in cm from the drone's start position (x right, y forward)
+      const exportItems = () => items.map(i => ({ type: i.type, x: r1(i.x - START_POS.x), y: r1(i.y - START_POS.y), rot: i.rot }));
+      function importItems(list) {
+        const next = []; let skipped = 0;
+        for (const i of list || []) {
+          const d = DEF[i.type];
+          if (!d || next.filter(n => n.type === i.type).length >= d.qty) { skipped++; continue; }
+          next.push({ type: i.type, x: cl(START_POS.x + (+i.x || 0), 0, W), y: cl(START_POS.y + (+i.y || 0), 0, L), rot: (((+i.rot || 0) % 360) + 360) % 360 });
+        }
+        items = next; sel = null; refresh();
+        return { loaded: next.length, skipped };
+      }
+
+      function buildPalette() {
+        const p = q('Palette'); p.innerHTML = '';
+        KIT.forEach(k => {
+          const left = k.qty - used(k.id), b = document.createElement('button');
+          b.className = 'px-2 py-1 rounded-md border text-[11px] flex items-center gap-1.5 transition ' + (armed === k.id ? 'bg-cyan-900 border-cyan-400 text-white' : 'bg-slate-800 border-slate-700 text-slate-200 hover:bg-slate-700') + (left <= 0 ? ' opacity-30 cursor-not-allowed' : '');
+          b.disabled = left <= 0;
+          b.innerHTML = `<i style="width:10px;height:10px;border-radius:2px;background:${k.color};display:inline-block"></i>${k.short}<b class="text-slate-400">×${left}</b>`;
+          b.onclick = () => { armed = armed === k.id ? null : k.id; say(armed ? 'Click the map to place it.' : ''); buildPalette(); };
+          p.appendChild(b);
+        });
+      }
+      function syncSel() {
+        q('Sel').style.visibility = sel ? 'visible' : 'hidden';
+        if (!sel) return;
+        q('SelName').textContent = DEF[sel.type].name;
+        q('X').value = r1(sel.x - START_POS.x); q('Y').value = r1(sel.y - START_POS.y); q('R').value = sel.rot;
+      }
+      function refresh() { buildPalette(); syncSel(); draw(); }
+
+      function resize() {
+        const w = q('Wrap'), cw = w.clientWidth, ch = w.clientHeight; if (!cw || !ch) return;
+        const dpr = window.devicePixelRatio || 1; cv.width = cw * dpr; cv.height = ch * dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        s = Math.max(0.2, Math.min((cw - 24) / W, (ch - 24) / L)); ox = (cw - W * s) / 2; oy = (ch - L * s) / 2; draw();
+      }
+      function arrow(len) { ctx.beginPath(); ctx.moveTo(0, -len * s); ctx.lineTo(-5, -len * s + 9); ctx.lineTo(5, -len * s + 9); ctx.closePath(); ctx.fill(); }
+      function drawItem(it, picked) {
+        const d = DEF[it.type], [sx, sy] = toS(it.x, it.y);
+        ctx.save(); ctx.translate(sx, sy); ctx.rotate(it.rot * Math.PI / 180);
+        ctx.fillStyle = d.color; ctx.strokeStyle = picked ? '#22d3ee' : 'rgba(255,255,255,.55)'; ctx.lineWidth = picked ? 3 : 1.5;
+        if (d.kind === 'pad') {
+          ctx.beginPath(); ctx.arc(0, 0, d.r * s, 0, 7); ctx.fill(); ctx.stroke();
+          ctx.fillStyle = '#f8fafc'; ctx.beginPath(); ctx.arc(0, 0, d.bull * s, 0, 7); ctx.fill();
+        } else if (d.kind === 'gate') {
+          const leg = (d.w - d.open) / 2 * s;
+          [-d.w / 2 * s, d.w / 2 * s - leg].forEach(x => { ctx.fillRect(x, -d.d / 2 * s, leg, d.d * s); ctx.strokeRect(x, -d.d / 2 * s, leg, d.d * s); });
+          ctx.setLineDash([4, 4]); ctx.strokeRect(-d.open / 2 * s, -d.d / 2 * s, d.open * s, d.d * s); ctx.setLineDash([]);
+          ctx.fillStyle = d.color; arrow(d.d / 2 + 14);
+        } else {
+          const w = d.w * s, h = d.d * s;
+          ctx.globalAlpha = d.kind === 'mat' ? .85 : 1; ctx.fillRect(-w / 2, -h / 2, w, h); ctx.globalAlpha = 1; ctx.strokeRect(-w / 2, -h / 2, w, h);
+          if (d.feet) { ctx.strokeStyle = 'rgba(255,255,255,.25)'; ctx.lineWidth = 1; for (let f = 1; f < d.d / 30.48; f++) { ctx.beginPath(); ctx.moveTo(-w / 2, -h / 2 + f * 30.48 * s); ctx.lineTo(w / 2, -h / 2 + f * 30.48 * s); ctx.stroke(); } }
+          if (d.kind === 'cube') { ctx.strokeStyle = 'rgba(255,255,255,.5)'; ctx.strokeRect(-w / 2 + 4, -h / 2 + 4, w - 8, h - 8); }
+          if (d.kind === 'tunnel') { ctx.fillStyle = '#0f172a'; ctx.fillRect(-w / 2 + 4, -h / 2 + 4, w - 8, h - 8); ctx.fillStyle = d.color; }
+          if (d.kind !== 'cube' && d.kind !== 'wall') arrow(Math.min(d.d / 2, 30));
+          if (d.kind === 'wall') { ctx.fillStyle = '#cbd5e1'; ctx.fillRect(-w / 2, -h / 2, w, Math.max(2, 2 * s)); }
+        }
+        ctx.restore();
+      }
+      function draw() {
+        const w = q('Wrap'), cw = w.clientWidth, ch = w.clientHeight; if (!cw || !ch) return;
+        ctx.clearRect(0, 0, cw, ch); ctx.fillStyle = '#1e293b'; ctx.fillRect(ox, oy, W * s, L * s);
+        ctx.strokeStyle = '#334155'; ctx.lineWidth = 1;
+        for (let x = 30.48; x < W; x += 30.48) { ctx.beginPath(); ctx.moveTo(ox + x * s, oy); ctx.lineTo(ox + x * s, oy + L * s); ctx.stroke(); }
+        for (let y = 30.48; y < L; y += 30.48) { ctx.beginPath(); ctx.moveTo(ox, oy + y * s); ctx.lineTo(ox + W * s, oy + y * s); ctx.stroke(); }
+        ctx.strokeStyle = '#06b6d4'; ctx.lineWidth = 3; ctx.strokeRect(ox, oy, W * s, L * s);
+        const [x0, y0] = toS(START_POS.x, START_POS.y); ctx.lineWidth = 2;
+        ctx.strokeStyle = '#ef4444'; ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x0 + 45 * s, y0); ctx.stroke();
+        ctx.strokeStyle = '#22c55e'; ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x0, y0 - 45 * s); ctx.stroke();
+        ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(x0, y0, 3.5, 0, 7); ctx.fill();
+        ctx.font = '600 10px system-ui'; ctx.fillStyle = '#e2e8f0'; ctx.fillText('START (0,0)', x0 + 6, y0 + 13);
+        items.forEach(i => drawItem(i, i === sel));
+        if (hover) {
+          const [hx, hy] = toS(hover.x, hover.y), rx = Math.round(hover.x - START_POS.x), ry = Math.round(hover.y - START_POS.y);
+          const t = `X ${rx > 0 ? '+' : ''}${rx}  Y ${ry > 0 ? '+' : ''}${ry} cm`;
+          ctx.strokeStyle = 'rgba(248,113,113,.7)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(ox, hy); ctx.lineTo(ox + W * s, hy); ctx.stroke();
+          ctx.strokeStyle = 'rgba(74,222,128,.7)'; ctx.beginPath(); ctx.moveTo(hx, oy); ctx.lineTo(hx, oy + L * s); ctx.stroke();
+          ctx.font = '600 11px ui-monospace,Menlo,Consolas,monospace'; const tw = ctx.measureText(t).width + 12, bx = Math.min(hx + 10, cw - tw - 2), by = Math.max(hy - 28, 2);
+          ctx.fillStyle = 'rgba(15,23,42,.92)'; ctx.fillRect(bx, by, tw, 20); ctx.fillStyle = '#e2e8f0'; ctx.fillText(t, bx + 6, by + 14);
+        }
+      }
+      const pt = e => { const r = cv.getBoundingClientRect(); return toM(e.clientX - r.left, e.clientY - r.top); };
+      const onMap = (x, y) => x >= 0 && x <= W && y >= 0 && y <= L;
+      function init() {
+        cv = q('Cv'); ctx = cv.getContext('2d');
+        cv.addEventListener('mousemove', e => {
+          const [x, y] = pt(e); hover = onMap(x, y) ? { x, y } : null;
+          if (drag && sel) { sel.x = cl(snapv(x - drag.dx), 0, W); sel.y = cl(snapv(y - drag.dy), 0, L); syncSel(); }
+          cv.style.cursor = drag ? 'grabbing' : (armed ? 'copy' : hitTest(x, y) ? 'grab' : 'crosshair'); draw();
+        });
+        cv.addEventListener('mouseleave', () => { hover = null; draw(); });
+        cv.addEventListener('mousedown', e => {
+          const [x, y] = pt(e);
+          if (armed) {
+            if (!onMap(x, y)) return;
+            const it = { type: armed, x: cl(snapv(x), 0, W), y: cl(snapv(y), 0, L), rot: 0 };
+            items.push(it); sel = it; if (used(armed) >= DEF[armed].qty) armed = null; say(''); refresh(); return;
+          }
+          sel = hitTest(x, y); drag = sel ? { dx: x - sel.x, dy: y - sel.y } : null; refresh();
+        });
+        window.addEventListener('mouseup', () => { drag = null; });
+        window.addEventListener('keydown', e => {
+          if (q('Wrap').offsetParent === null || /INPUT|TEXTAREA/.test(document.activeElement.tagName)) return; // only while the Map Editor tab is open
+          if (e.key === 'Escape') { armed = null; refresh(); }
+          if (!sel) return;
+          if (e.key === 'Delete' || e.key === 'Backspace') { items = items.filter(i => i !== sel); sel = null; e.preventDefault(); refresh(); }
+          if (e.key.toLowerCase() === 'r') { sel.rot = (sel.rot + (e.shiftKey ? -15 : 15) + 360) % 360; refresh(); }
+        });
+        [['X', 'x', START_POS.x, W], ['Y', 'y', START_POS.y, L]].forEach(([id, k, o, mx]) => { q(id).onchange = () => { if (sel) { sel[k] = cl(o + (+q(id).value || 0), 0, mx); refresh(); } }; });
+        q('R').onchange = () => { if (sel) { sel.rot = (((+q('R').value || 0) % 360) + 360) % 360; refresh(); } };
+        q('Rot').onclick = () => { if (sel) { sel.rot = (sel.rot + 90) % 360; refresh(); } };
+        q('Del').onclick = () => { items = items.filter(i => i !== sel); sel = null; refresh(); };
+        q('Clear').onclick = () => { items = []; sel = null; q('Code').value = ''; say(''); refresh(); };
+        new ResizeObserver(resize).observe(q('Wrap')); refresh();
+      }
+      return { init, show: () => { resize(); refresh(); }, say, DEF, importItems, exportItems,
+               matItems: () => items.map(i => ({ ...i })), count: () => items.length };
+    })();
+
+    // ---- 3D versions of the pieces (visual only for now: the drone flies through them) ----
+    const KEYHOLE_HEIGHT = 100; // cm - placeholder: the manual doesn't give the keyhole gate's height off the floor
+    let mapGroup = null;
+    function archShape() {
+      const ao = 129.55, ho = 188, ai = 76.2, hi = 160, sh = new THREE.Shape();
+      sh.moveTo(-ao, 0); sh.lineTo(-ao, ho - ao); sh.absarc(0, ho - ao, ao, Math.PI, 0, true); sh.lineTo(ao, 0);
+      sh.lineTo(ai, 0); sh.lineTo(ai, hi - ai); sh.absarc(0, hi - ai, ai, 0, Math.PI, false); sh.lineTo(-ai, 0); sh.closePath();
+      return sh;
+    }
+    function buildPiece(it) {
+      const d = MapEditor.DEF[it.type], g = new THREE.Group();
+      const mat = (o = {}) => new THREE.MeshStandardMaterial(Object.assign({ color: d.color, roughness: 0.7, side: THREE.DoubleSide }, o));
+      const add = (geo, m, x = 0, y = 0, z = 0) => { const mesh = new THREE.Mesh(geo, m); mesh.position.set(x, y, z); g.add(mesh); return mesh; };
+      if (d.kind === 'gate' && it.type.startsWith('arch')) {
+        const geo = new THREE.ExtrudeGeometry(archShape(), { depth: d.d, bevelEnabled: false }); geo.translate(0, 0, -d.d / 2);
+        add(geo, mat());
+      } else if (d.kind === 'gate') { // keyhole gate: ring on a pole
+        const R = (d.w + d.open) / 4, tube = (d.w - d.open) / 4;
+        add(new THREE.TorusGeometry(R, tube, 12, 40), mat(), 0, KEYHOLE_HEIGHT, 0);
+        add(new THREE.CylinderGeometry(1.2, 1.2, KEYHOLE_HEIGHT - R, 8), mat({ color: '#94a3b8' }), 0, (KEYHOLE_HEIGHT - R) / 2, 0);
+        add(new THREE.CylinderGeometry(14, 14, 1.5, 24), mat({ color: '#475569' }), 0, 0.75, 0);
+      } else if (d.kind === 'pad') {
+        add(new THREE.CylinderGeometry(d.r, d.r, 1, 40), mat(), 0, 0.5, 0);
+        add(new THREE.CylinderGeometry(d.bull, d.bull, 1.1, 32), mat({ color: '#f8fafc' }), 0, 0.55, 0);
+      } else if (d.kind === 'cube') {
+        add(new THREE.BoxGeometry(d.w, d.h, d.d), mat({ transparent: true, opacity: 0.85 }), 0, d.h / 2, 0);
+      } else if (d.kind === 'wall') { // the Sensor Testing Ground wall: a slab with a light cap so it shows up from every camera
+        add(new THREE.BoxGeometry(d.w, d.h, d.d), mat({ roughness: 0.65 }), 0, d.h / 2, 0);
+        add(new THREE.BoxGeometry(d.w, 2, d.d + 2), mat({ color: '#cbd5e1', roughness: 0.55 }), 0, d.h - 1, 0);
+      } else if (d.kind === 'mat') {
+        add(new THREE.BoxGeometry(d.w, 0.5, d.d), mat(), 0, 0.25, 0);
+      } else if (d.kind === 'tunnel') { // open at both ends, lying on the floor along the forward direction
+        const r = d.w / 2, geo = new THREE.CylinderGeometry(r, r, d.d, 32, 1, true); geo.rotateX(Math.PI / 2);
+        add(geo, mat(), 0, r, 0);
+      }
+      g.position.set(it.x, 0, -it.y); g.rotation.y = -it.rot * Math.PI / 180; // mat Y runs along -Z; positive turn = clockwise
+      return g;
+    }
+    // ---- collisions: the drone is treated as a 10 cm-radius disc at its altitude ----
+    let activePieces = [], pieceFlash = null;
+    // Is the point (x, y, z) inside piece p? R grows the piece by the size of the thing being tested (drone 10 cm, laser ray 1 cm)
+    function pieceSolid(p, x, y, z, R) {
+      const it = p.item, d = p.def;
+      if (d.kind === 'pad' || d.kind === 'mat') return false; // flat on the floor
+      const dx = x - it.x, dy = y - it.y, t = it.rot * Math.PI / 180;
+      const lx = dx * Math.cos(t) - dy * Math.sin(t), ly = dx * Math.sin(t) + dy * Math.cos(t); // lx = across, ly = along the piece's forward direction
+      if (d.kind === 'cube') return Math.abs(lx) < d.w / 2 + R && Math.abs(ly) < d.d / 2 + R && z < d.h - 0.3;
+      if (d.kind === 'wall') return Math.abs(lx) < d.w / 2 + R && Math.abs(ly) < d.d / 2 + R && z < d.h - 0.3;
+      if (d.kind === 'gate' && it.type.startsWith('arch')) {
+        if (Math.abs(ly) >= d.d / 2 + R) return false;
+        const inOuter = z < 58.45 ? Math.abs(lx) < 129.55 + R : Math.hypot(lx, z - 58.45) < 129.55 + R; // outline of the arch
+        const ri = 76.2 - R, free = z < 83.8 ? Math.abs(lx) < ri : Math.hypot(lx, z - 83.8) < ri;      // opening, shrunk by the size of the thing
+        return inOuter && !free;
+      }
+      if (d.kind === 'gate') { // keyhole gate: the ring, or its pole
+        const rad = Math.hypot(lx, z - KEYHOLE_HEIGHT);
+        return (Math.abs(ly) < d.d / 2 + R && rad < d.w / 2 + R && rad > d.open / 2 - R) || (Math.hypot(lx, ly) < 1.2 + R && z < KEYHOLE_HEIGHT - d.w / 2);
+      }
+      if (d.kind === 'tunnel') { // the wall of the tube; the inside and the open ends are clear
+        const r = d.w / 2;
+        return Math.abs(ly) < d.d / 2 && Math.abs(Math.hypot(lx, z - r) - r) < R;
+      }
+      return false;
+    }
+    // Fraction (0 to 1) of the drone's footprint (a 10 cm-radius disc) that is over a cube's top
+    function overFraction(p) {
+      const it = p.item, d = p.def, dx = droneState.x - it.x, dy = droneState.y - it.y, t = it.rot * Math.PI / 180;
+      const c = Math.cos(t), sn = Math.sin(t), lx = dx * c - dy * sn, ly = dx * sn + dy * c;
+      if (Math.abs(lx) >= d.w / 2 + EDGE || Math.abs(ly) >= d.d / 2 + EDGE) return 0;
+      let on = 0, all = 0;
+      for (let i = -5; i <= 5; i++) for (let j = -5; j <= 5; j++) {
+        const u = i * EDGE / 5, v = j * EDGE / 5; if (u * u + v * v > EDGE * EDGE) continue;
+        all++; if (Math.abs(lx + u) <= d.w / 2 && Math.abs(ly + v) <= d.d / 2) on++;
+      }
+      return on / all;
+    }
+    // Height the drone can land on: the top of a cube if MORE than half of the drone is over it, otherwise the floor
+    function floorBelow() {
+      let h = 0;
+      for (const p of activePieces) if (p.def.kind === 'cube' && p.def.h > h && overFraction(p) > 0.5) h = p.def.h;
+      return h;
+    }
+    // Height of whatever is directly under the drone's centre (what the bottom range sensor sees)
+    function surfaceUnder() {
+      let h = 0;
+      for (const p of activePieces) {
+        if (p.def.kind !== 'cube' || p.def.h <= h) continue;
+        const it = p.item, dx = droneState.x - it.x, dy = droneState.y - it.y, t = it.rot * Math.PI / 180;
+        if (Math.abs(dx * Math.cos(t) - dy * Math.sin(t)) <= p.def.w / 2 && Math.abs(dx * Math.sin(t) + dy * Math.cos(t)) <= p.def.d / 2) h = p.def.h;
+      }
+      return h;
+    }
+    function collidingPiece() {
+      if (!activePieces.length || !droneState.isFlying) return null; // only a flying drone can crash
+      return activePieces.find(p => pieceSolid(p, droneState.x, droneState.y, droneState.z, EDGE)) || null;
+    }
+    // Distance (cm) from the drone along its heading to the first map piece at this height, or null if the way is clear up to maxD
+    function rayHitDistance(x, y, z, dirX, dirY, maxD) {
+      if (!activePieces.length) return null;
+      for (let t = 8; t <= maxD; t++) {
+        const px = x + dirX * t, py = y + dirY * t;
+        if (activePieces.some(p => pieceSolid(p, px, py, z, 1))) return t;
+      }
+      return null;
+    }
+    function flashPiece(p) { // light the piece up red
+      unflashPiece();
+      p.group.traverse(o => { if (o.material && o.material.emissive) { o.material.emissive.setHex(0xff2d20); o.material.emissiveIntensity = 1.3; } });
+      pieceFlash = { group: p.group, until: performance.now() + 2500 };
+    }
+    function unflashPiece() {
+      if (!pieceFlash) return;
+      pieceFlash.group.traverse(o => { if (o.material && o.material.emissive) { o.material.emissive.setHex(0x000000); o.material.emissiveIntensity = 1; } });
+      pieceFlash = null;
+    }
+    function clearMapFromScene() {
+      activePieces = []; pieceFlash = null; resetBattery(); // a new map or floor means a fresh start
+      if (!mapGroup) return;
+      mapGroup.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); });
+      scene.remove(mapGroup); mapGroup = null;
+    }
+
+    function buildSensorWall(wall) {
+      const g = new THREE.Group();
+      const bodyMat = new THREE.MeshStandardMaterial({ color: wall.color, roughness: 0.65, metalness: 0.05 });
+      const body = new THREE.Mesh(new THREE.BoxGeometry(wall.w, wall.h, wall.d), bodyMat);
+      body.position.y = wall.h / 2;
+      body.castShadow = true;
+      body.receiveShadow = true;
+      g.add(body);
+
+      // Thin cap/edge makes the wall easier to see from Chase and Orbit views.
+      const capMat = new THREE.MeshStandardMaterial({ color: '#cbd5e1', roughness: 0.55 });
+      const cap = new THREE.Mesh(new THREE.BoxGeometry(wall.w, 2, wall.d + 2), capMat);
+      cap.position.y = wall.h - 1;
+      cap.castShadow = true;
+      g.add(cap);
+
+      g.position.set(wall.x, 0, -wall.y);
+      g.rotation.y = -((wall.rot || 0) * Math.PI / 180);
+      return g;
+    }
+
+    function applySensorTestingGround() {
+      randomSensorTestingLayout();
+      clearMapFromScene();
+      mapGroup = new THREE.Group();
+      SENSOR_TEST_WALLS.forEach(wall => {
+        const g = buildSensorWall(wall);
+        mapGroup.add(g);
+        activePieces.push({
+          item: { type: 'sensor-wall', x: wall.x, y: wall.y, rot: wall.rot || 0 },
+          def: { kind: 'wall', w: wall.w, d: wall.d, h: wall.h, name: wall.name, color: wall.color },
+          group: g
+        });
+      });
+      scene.add(mapGroup);
+      lastGood = null;
+    }
+
+    function applyMapToScene(list) {
+      clearMapFromScene(); mapGroup = new THREE.Group();
+      list.forEach(it => { const g = buildPiece(it); mapGroup.add(g); activePieces.push({ item: it, def: MapEditor.DEF[it.type], group: g }); });
+      scene.add(mapGroup); lastGood = null;
+    }
+
+    // ---- saved maps (the "My maps" part of the map menu) ----
+    let savedMaps = {};
+    let storageOk = true;
+    function loadSavedMaps() { try { savedMaps = JSON.parse(localStorage.getItem('codroneMaps') || '{}') || {}; } catch (e) { savedMaps = {}; storageOk = false; } }
+    function persistMaps() { try { localStorage.setItem('codroneMaps', JSON.stringify(savedMaps)); return true; } catch (e) { storageOk = false; return false; } }
+    function setFloor(type) { currentMatType = type; matMesh.material.map = generateMatTexture(type); matMesh.material.needsUpdate = true; }
+    function refreshMapMenu(select) {
+      const menu = $id('matSelect'); let g = $id('myMapsGroup'); if (g) g.remove();
+      const names = Object.keys(savedMaps).sort();
+      if (names.length) {
+        g = document.createElement('optgroup'); g.id = 'myMapsGroup'; g.label = 'My maps';
+        names.forEach(n => { const o = document.createElement('option'); o.value = 'map:' + n; o.textContent = n; o.className = 'bg-slate-900'; g.appendChild(o); });
+        menu.appendChild(g);
+      }
+      if (select) menu.value = 'map:' + select;
+    }
+    const floorName = v => { const o = [...$id('matSelect').options].find(o => o.value === v); return o ? o.text : v; };
+    function showMapInSimulator() { // floor chosen in the editor + the editor's pieces (keeps the map menu in step)
+      const floor = $id('meFloor').value || 'blank';
+      setFloor(floor); applyMapToScene(MapEditor.matItems()); $id('matSelect').value = floor;
+    }
+    function openSavedMap(name) {
+      const m = savedMaps[name]; if (!m) return;
+      MapEditor.importItems(m.items); $id('meFloor').value = m.mat || 'blank'; showMapInSimulator(); $id('matSelect').value = 'map:' + name;
+      $id('meName').value = name; updateSaveButtons();
+      logConsole(`Loaded map: ${name}`);
+    }
+    function updateSaveButtons() {
+      const name = $id('meName').value.trim(), exists = !!savedMaps[name];
+      $id('meSave').textContent = exists ? 'UPDATE SAVED MAP' : 'SAVE TO MAPS MENU';
+      $id('meDelMap').style.display = exists ? '' : 'none';
+    }
+    function wireMapTab() {
+      MapEditor.init(); loadSavedMaps(); refreshMapMenu(); updateSaveButtons();
+      [...$id('matSelect').options].filter(o => !o.value.startsWith('map:') && o.value !== 'color').forEach(o => { const c = document.createElement('option'); c.value = o.value; c.textContent = o.text; c.className = 'bg-slate-900'; $id('meFloor').appendChild(c); });
+      $id('meFloor').value = 'blank';
+      if ($id('meFloor').options.length < 2) $id('meFloor').parentElement.style.display = 'none'; // only one floor to choose from
+      $id('meName').addEventListener('input', updateSaveButtons);
+      $id('meLoad').addEventListener('click', () => {
+        if (!MapEditor.count()) { MapEditor.say('Place at least one piece first.'); return; }
+        showMapInSimulator(); MapEditor.say('Map loaded into the simulator (not saved yet).'); logConsole('Map loaded into the simulator.');
+      });
+      $id('meUnload').addEventListener('click', () => { clearMapFromScene(); MapEditor.say('Map removed from the simulator.'); });
+      $id('meSave').addEventListener('click', () => {
+        const name = $id('meName').value.trim().slice(0, 40);
+        if (!name) { MapEditor.say('Type a name for the map first.'); return; }
+        if (!MapEditor.count()) { MapEditor.say('Place at least one piece first.'); return; }
+        savedMaps[name] = { mat: $id('meFloor').value || 'blank', items: MapEditor.exportItems() };
+        const kept = persistMaps(); showMapInSimulator(); refreshMapMenu(name); updateSaveButtons();
+        MapEditor.say(`Saved “${name}” to the maps menu (floor: ${floorName($id('meFloor').value)}).` + (kept ? '' : ' (Browser storage is blocked here, so it lasts until you close this page. Use “Copy code” to keep it.)'));
+        logConsole(`Saved map: ${name}`);
+      });
+      $id('meDelMap').addEventListener('click', () => {
+        const name = $id('meName').value.trim(); if (!savedMaps[name]) return;
+        delete savedMaps[name]; persistMaps(); refreshMapMenu(); $id('matSelect').value = $id('meFloor').value; updateSaveButtons(); MapEditor.say(`Deleted “${name}” from the maps menu.`);
+      });
+      $id('meCopy').addEventListener('click', async () => {
+        const code = JSON.stringify({ format: 'codrone-map', version: 1, units: 'cm', mat: $id('meFloor').value, items: MapEditor.exportItems() }, null, 1);
+        $id('meCode').value = code; $id('meCode').select();
+        try { await navigator.clipboard.writeText(code); MapEditor.say('Map code copied.'); } catch (e) { MapEditor.say('Map code is in the box - press Ctrl/Cmd+C to copy it.'); }
+      });
+      $id('meImport').addEventListener('click', () => {
+        try {
+          const m = JSON.parse($id('meCode').value);
+          if (m.format !== 'codrone-map' || !Array.isArray(m.items)) throw new Error('This is not a CoDrone map code.');
+          if (m.mat && [...$id('meFloor').options].some(o => o.value === m.mat)) $id('meFloor').value = m.mat;
+          const r = MapEditor.importItems(m.items); MapEditor.say(`Loaded ${r.loaded} pieces` + (r.skipped ? ` (${r.skipped} skipped: not in one kit).` : '.'));
+        } catch (e) { MapEditor.say('Could not read that map: ' + e.message); }
+      });
+    }
+    // ===== end Map Editor =====
+
+    // ===== Debugger: line highlight, step forward / back, variable watcher =====
+    let stepMode = false, stepWaiter = null, stepHistory = [], histPos = -1, curLine = 0, runSeq = 0, watchVars = new Map();
+    const $id = id => document.getElementById(id);
+    const esc = t => String(t).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+
+    function showLine(n, review) { // highlight a line of the code editor (0 hides it)
+      const ta = $id('pythonCodeInput'), hl = $id('lineHL');
+      curLine = n;
+      if (!n) { hl.style.display = 'none'; return; }
+      const top = 12 + (n - 1) * 20; // textarea padding + line number x line height
+      if (top < ta.scrollTop) ta.scrollTop = Math.max(0, top - 20);
+      else if (top + 20 > ta.scrollTop + ta.clientHeight - 12) ta.scrollTop = top + 32 - ta.clientHeight;
+      hl.style.top = (top - ta.scrollTop) + 'px'; hl.style.display = 'block';
+      hl.style.background = review ? 'rgba(56,189,248,.22)' : 'rgba(250,204,21,.24)'; // blue = looking at an earlier step
+      hl.style.borderLeft = '3px solid ' + (review ? '#38bdf8' : '#facc15');
+    }
+    const fmtVar = v => typeof v === 'number' && !Number.isInteger(v) ? String(+v.toFixed(4)) : (typeof v === 'string' ? pyRepr(v) : pyStr(v));
+    function renderVars() {
+      const el = $id('varWatch'), now = performance.now();
+      el.innerHTML = watchVars.size
+        ? [...watchVars].map(([k, v]) => `<div class="flex justify-between gap-2 px-1 rounded ${now - v.t < 700 ? 'var-flash' : ''}"><span class="text-slate-400">${esc(k)}</span><span class="text-amber-300 font-semibold truncate">${esc(v.val)}</span></div>`).join('')
+        : '<div class="text-slate-600">Variables show up here when your program runs.</div>';
+    }
+    function dbgVar(name, val) { // called after every assignment in the student's program
+      const s = fmtVar(val), p = watchVars.get(name);
+      if (!p || p.val !== s) { watchVars.set(name, { val: s, t: performance.now() }); renderVars(); }
+    }
+    async function dbgLine(n) { // called before every line: highlight it, remember the state, pause when stepping
+      if (scriptAbort) throw ABORT;
+      stepHistory.push({ line: n, d: { ...droneState }, vars: new Map([...watchVars].map(([k, v]) => [k, { ...v, t: 0 }])), trail: trailCount, led: topLedLight.material.color.getHex() });
+      if (stepHistory.length > 3000) stepHistory.shift();
+      histPos = stepHistory.length - 1;
+      showLine(n, false);
+      if (!stepMode) return;
+      await new Promise(res => { stepWaiter = res; });
+      if (scriptAbort) throw ABORT;
+    }
+    function dbgRestore(i) { // show the drone, variables and highlighted line exactly as they were at step i
+      const s = stepHistory[i]; if (!s) return;
+      histPos = i; Object.assign(droneState, s.d);
+      watchVars = new Map([...s.vars].map(([k, v]) => [k, { ...v }])); renderVars();
+      trailCount = s.trail; if (trailLine) trailLine.geometry.setDrawRange(0, trailCount);
+      topLedLight.material.color.setHex(s.led); ledAnim = null;
+      updateDroneMeshPosition(); calculateSensors(); renderBattery();
+      showLine(s.line, !(isScriptRunning && i === stepHistory.length - 1));
+    }
+    function releaseStep() { stepMode = false; if (stepWaiter) { const w = stepWaiter; stepWaiter = null; w(); } }
+    function stepForward() {
+      if (histPos >= 0 && histPos < stepHistory.length - 1) { dbgRestore(histPos + 1); return; } // replay a step already run
+      if (!isScriptRunning) { runPythonScript(true); return; }                                  // start, paused on the first line
+      if (stepWaiter) { const w = stepWaiter; stepWaiter = null; showLine(curLine, false); w(); } // run the next line for real
+      else stepMode = true;                                                                    // running freely: pause at the next line
+    }
+    function stepBack() {
+      if (isScriptRunning && !stepWaiter) { stepMode = true; return; } // first click pauses a running program
+      if (histPos > 0) dbgRestore(histPos - 1);
+    }
+    function runOrContinue() {
+      if (!isScriptRunning) { runPythonScript(false); return; }
+      stepMode = false;
+      if (histPos < stepHistory.length - 1) dbgRestore(stepHistory.length - 1);
+      releaseStep();
+    }
+    function resetDebugger() {
+      if (stepWaiter) scriptAbort = true;
+      releaseStep(); stepHistory = []; histPos = -1; watchVars = new Map(); renderVars(); showLine(0);
+    }
+    // ===== end Debugger =====
+
+    async function runPythonScript(step = false) {
+      if (isScriptRunning) return;
+      const myRun = ++runSeq;
+      isScriptRunning = true;
+      scriptAbort = false;
+      stepMode = step === true; stepWaiter = null;
+      stepHistory = []; histPos = -1; watchVars = new Map(); renderVars(); showLine(0);
+      resetBattery(); // every program starts on a full battery
+      try { ensureAudio(); } catch (e) {}
+      boundaryHit = null; clearTrail(); hideBoundaryBanner(); ledAnim = null;
+      logConsole(stepMode ? 'Stepping through the program - press the forward button for each line.' : 'Starting Python flight execution...');
+      try {
+        const js = transpilePython(document.getElementById('pythonCodeInput').value);
+        const env = makePyEnv(), names = Object.keys(env);
+        const AsyncFn = Object.getPrototypeOf(async function () {}).constructor;
+        await new AsyncFn(...names, js)(...names.map(k => env[k]));
+        logConsole('Python script execution completed.');
+      } catch (e) {
+        if (e && e.boundary) { logConsole(e.message); showBoundaryBanner(e.message, true); }
+        else logConsole(e === ABORT ? 'Script stopped.' : `Error: ${e.message}`);
+      }
+      stopTone(); pauseFlightTimer();
+      if (myRun === runSeq) { isScriptRunning = false; stepMode = false; stepWaiter = null; showLine(0); }
+    }
+
+    // ===== Mat boundary =====
+    // Camera modes: Orbit is free camera control; Chase and FPV follow the drone.
+    let cameraMode = 'orbit';
+    function setCameraButtonState(activeId) {
+      const ids = ['camOrbitBtn', 'camChaseBtn', 'camFpvBtn'];
+      ids.forEach(id => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        const active = id === activeId;
+        el.classList.toggle('bg-slate-700', active);
+        el.classList.toggle('text-white', active);
+        el.classList.toggle('text-slate-300', !active);
+      });
+    }
+
+    function cycleControllerView(){
+      const modes=['orbit','chase','fpv'];
+      const index=modes.indexOf(cameraMode);
+      const next=modes[(index+1)%modes.length];
+      setCameraMode(next);
+      const label=next==='orbit'?'Orbit':next==='chase'?'Chase':'FPV';
+      logConsole('Controller: Camera view changed to '+label+'.');
+    }
+
+    function setCameraMode(mode) {
+      cameraMode = mode;
+      if (!camera || !controls || !droneMesh) return;
+
+      if (mode === 'orbit') {
+        controls.enabled = true;
+        camera.position.set(152.5, 380, 280);
+        controls.target.set(152.5, 0, -183);
+        controls.update();
+        setCameraButtonState('camOrbitBtn');
+        return;
+      }
+
+      controls.enabled = false;
+      updateFollowCamera(true);
+      setCameraButtonState(mode === 'chase' ? 'camChaseBtn' : 'camFpvBtn');
+    }
+
+    function updateFollowCamera(snap = false) {
+      if (!camera || !droneMesh || cameraMode === 'orbit') return;
+      const yaw = droneState.yaw * Math.PI / 180;
+      // Drone forward in world coordinates: Mat +Y maps to Three.js -Z.
+      const fx = Math.sin(yaw);
+      const fz = -Math.cos(yaw);
+      const droneWorldY = droneState.z + 2;
+
+      if (cameraMode === 'chase') {
+        const distance = 80;
+        const height = 45;
+        const targetAhead = 90;
+        const desiredX = droneState.x - fx * distance;
+        const desiredY = droneWorldY + height;
+        const desiredZ = -droneState.y - fz * distance;
+        const lookX = droneState.x + fx * targetAhead;
+        const lookY = droneWorldY + 5;
+        const lookZ = -droneState.y + fz * targetAhead;
+        const t = snap ? 1 : 0.18;
+        camera.position.x += (desiredX - camera.position.x) * t;
+        camera.position.y += (desiredY - camera.position.y) * t;
+        camera.position.z += (desiredZ - camera.position.z) * t;
+        const target = new THREE.Vector3(lookX, lookY, lookZ);
+        controls.target.copy(target);
+        camera.lookAt(target);
+      } else if (cameraMode === 'fpv') {
+        const forwardOffset = 7;
+        const cameraHeight = 3.5;
+        const lookAhead = 140;
+        const desiredX = droneState.x + fx * forwardOffset;
+        const desiredY = droneWorldY + cameraHeight;
+        const desiredZ = -droneState.y + fz * forwardOffset;
+        const lookX = droneState.x + fx * lookAhead;
+        const lookY = droneWorldY + cameraHeight;
+        const lookZ = -droneState.y + fz * lookAhead;
+        const t = snap ? 1 : 0.35;
+        camera.position.x += (desiredX - camera.position.x) * t;
+        camera.position.y += (desiredY - camera.position.y) * t;
+        camera.position.z += (desiredZ - camera.position.z) * t;
+        const target = new THREE.Vector3(lookX, lookY, lookZ);
+        controls.target.copy(target);
+        camera.lookAt(target);
+      }
+    }
+
+    const EDGE = 10; // cm: how close the drone's centre can get to the edge of the mat
+    let boundaryHit = null, lastCall = '', lastBannerAt = 0, lastGood = null;
+    const relStr = v => { const r = Math.round(v); return (r > 0 ? '+' : '') + r; };
+
+    // Keeps the drone on the mat and out of the map pieces. Returns true only for a real crash.
+    // A glancing contact - moving within about 25 degrees of a wall - slides along it instead, like a drone brushing a wall.
+    const GRAZE_SIN = Math.sin(25 * Math.PI / 180);
+    let lastScrapeAt = 0;
+    function noteScrape(what) {
+      const now = performance.now();
+      if (now - lastScrapeAt > 3000) { lastScrapeAt = now; logConsole('Brushed ' + what + ' - slid along it.'); }
+    }
+    function clampToMat() {
+      const rawX = droneState.x, rawY = droneState.y;
+      const ceilingHit = droneState.z > CEIL_LIMIT; // flew into the 8 ft ceiling?
+      if (ceilingHit) { droneState.z = CEIL_LIMIT; droneState.isTakingOff = false; droneState.targetZ = Math.min(droneState.targetZ, CEIL_LIMIT); }
+      const x = Math.max(EDGE, Math.min(MAT_WIDTH - EDGE, rawX));
+      const y = Math.max(EDGE, Math.min(MAT_LENGTH - EDGE, rawY));
+      const hitX = Math.abs(x - rawX) > 1e-6, hitY = Math.abs(y - rawY) > 1e-6;
+      droneState.x = x; droneState.y = y;
+      let hit = false;
+      if (hitX || hitY) { // how head-on was it? the share of this move that pushed into the wall
+        let head = 1;
+        if (lastGood) { const mx = rawX - lastGood.x, my = rawY - lastGood.y, len = Math.hypot(mx, my); if (len > 1e-6) head = Math.max(hitX ? Math.abs(mx) : 0, hitY ? Math.abs(my) : 0) / len; }
+        hit = head >= GRAZE_SIN;
+        if (!hit) noteScrape('the edge of the mat');
+      }
+      if (activePieces.length) { const fl = floorBelow(); if (droneState.z < fl) droneState.z = fl; } // resting on top of a cube
+      let piece = collidingPiece(); // crashed into a piece of the loaded map?
+      if (piece && lastGood) { // glancing blow on a piece: keep only the part of the move that runs along its surface
+        const mx = droneState.x - lastGood.x, my = droneState.y - lastGood.y, len = Math.hypot(mx, my);
+        if (len > 1e-6) for (const [cx, cy, head] of [[droneState.x, lastGood.y, Math.abs(my) / len], [lastGood.x, droneState.y, Math.abs(mx) / len]]) {
+          if (head >= GRAZE_SIN) continue;
+          const sx = droneState.x, sy = droneState.y; droneState.x = cx; droneState.y = cy;
+          if (!collidingPiece()) { noteScrape('the ' + piece.def.name); piece = null; break; }
+          droneState.x = sx; droneState.y = sy;
+        }
+      }
+      if (piece) {
+        const landing = droneState.isLanding || (lastGood && droneState.z < lastGood.z - 0.01 && Math.hypot(droneState.x - lastGood.x, droneState.y - lastGood.y) < 0.01);
+        if (lastGood) { droneState.x = lastGood.x; droneState.y = lastGood.y; droneState.z = lastGood.z; } // stop at the surface
+        droneState.isLanding = false; droneState.isTakingOff = false; droneState.targetZ = droneState.z; // hover where it stopped
+        boundaryContact(piece, !!landing);
+        return true;
+      }
+      lastGood = { x: droneState.x, y: droneState.y, z: droneState.z };
+      if (ceilingHit && !hit) { boundaryContact(null, false, true); return true; }
+      if (hit) boundaryContact();
+      return hit;
+    }
+
+    function boundaryContact(piece, landing, ceiling) { // piece = a map piece the drone crashed into (none = the edge of the mat)
+      const what = piece ? piece.def.name : null;
+      // During a Python run the program is stopped; in manual flight the drone just stops
+      if (isScriptRunning && !boundaryHit) boundaryHit = { x: droneState.x - START_POS.x, y: droneState.y - START_POS.y, what, landing, ceiling: !!ceiling };
+      if (piece) flashPiece(piece); else if (ceiling) flashCeiling(); else flashEdge();
+      const now = performance.now();
+      if (!isScriptRunning && now - lastBannerAt > 3000) {
+        lastBannerAt = now;
+        showBoundaryBanner(ceiling ? `⚠ Crash! The drone hit the 8 ft ceiling at X ${relStr(droneState.x - START_POS.x)} cm, Y ${relStr(droneState.y - START_POS.y)} cm.` : piece ? (landing ? `⚠ Landing failed! Less than half of the drone was on the ${what}.` : `⚠ Crash! The drone hit the ${what}.`)
+          : `⚠ Off the mat! The drone reached the edge at X ${relStr(droneState.x - START_POS.x)} cm, Y ${relStr(droneState.y - START_POS.y)} cm.`);
+      }
+    }
+
+    function boundaryError() {
+      const b = boundaryHit; boundaryHit = null;
+      const where = `at X ${relStr(b.x)} cm, Y ${relStr(b.y)} cm`;
+      if (b.ceiling) return { boundary: true, message: `⚠ Crash! ${lastCall} hit the 8 ft ceiling ${where}. Program stopped.` };
+      return { boundary: true, message: b.what ? (b.landing ? `⚠ Landing failed! ${lastCall}: less than half of the drone was on the ${b.what}, ${where}. Program stopped.` : `⚠ Crash! ${lastCall} hit the ${b.what} ${where}. Program stopped.`)
+                                                : `⚠ Off the mat! ${lastCall} reached the edge ${where}. Program stopped.` };
+    }
+    // ===== end Mat boundary =====
+
+    async function executeMoveForward(distCm, offsetDeg = 0) {
+      if (!droneState.isFlying) return;
+      const step = 2; // cm per step
+      const steps = Math.abs(distCm) / step;
+      if (distCm < 0) offsetDeg += 180;
+      const rad = ((droneState.yaw + offsetDeg) * Math.PI) / 180;
+      const dx = Math.sin(rad) * step;
+      const dy = Math.cos(rad) * step;
+
+      for (let s = 0; s < steps; s++) {
+        if (scriptAbort) break;
+        droneState.x += dx;
+        droneState.y += dy;
+        if (clampToMat()) break; // reached the edge of the mat
+        await sleep(20);
+      }
+    }
+
+    async function executeTurn(deg) {
+      if (!droneState.isFlying) return;
+      const step = 3;
+      const steps = Math.abs(deg) / step;
+      const dir = deg > 0 ? 1 : -1;
+
+      for (let s = 0; s < steps; s++) {
+        if (scriptAbort) break;
+        droneState.yaw = (droneState.yaw + (step * dir) + 360) % 360;
+        await sleep(20);
+      }
+    }
+
+    function sleep(ms) {
+      return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    function logConsole(msg) {
+      const consoleEl = document.getElementById('consoleLog');
+      const time = new Date().toLocaleTimeString().split(' ')[0];
+      const div = document.createElement('div');
+      div.innerText = `[${time}] ${msg}`;
+      consoleEl.appendChild(div);
+      consoleEl.scrollTop = consoleEl.scrollHeight;
+    }
+
+    // Attach UI Event Listeners
+    document.addEventListener('DOMContentLoaded', () => {
+      init3D();
+
+      // Tab switching: Manual / Python / Map Editor
+      const TAB_ON = 'flex-1 py-2 px-3 text-xs font-semibold rounded-lg bg-slate-800 text-cyan-400 border border-slate-700 transition flex items-center justify-center gap-2';
+      const TAB_OFF = 'flex-1 py-2 px-3 text-xs font-semibold rounded-lg hover:bg-slate-800/60 text-slate-400 border border-transparent transition flex items-center justify-center gap-2';
+      const TABS = { manual: ['tabManualBtn', 'manualTabContent'], code: ['tabCodeBtn', 'codeTabContent'], map: ['tabMapBtn', 'mapTabContent'] };
+      function showTab(name) {
+        for (const [k, [btn, panel]] of Object.entries(TABS)) {
+          document.getElementById(btn).className = k === name ? TAB_ON : TAB_OFF;
+          document.getElementById(panel).classList.toggle('hidden', k !== name);
+        }
+        document.getElementById('telemetryPanel').classList.toggle('hidden', name === 'map'); // more room for the map
+        if (name === 'map') MapEditor.show();
+      }
+      for (const [k, [btn]] of Object.entries(TABS)) document.getElementById(btn).addEventListener('click', () => showTab(k));
+      wireMapTab();
+
+      // Speed Buttons (S1, S2, S3)
+      const btnS1 = document.getElementById('btnSpeedS1');
+      const btnS2 = document.getElementById('btnSpeedS2');
+      const btnS3 = document.getElementById('btnSpeedS3');
+      const speedLabel = document.getElementById('speedPercentLabel');
+
+      function setSpeedLevel(level) {
+        droneState.speedLevel = level;
+        [btnS1, btnS2, btnS3].forEach((btn, idx) => {
+          if (idx + 1 === level) {
+            btn.className = 'px-2.5 py-1 text-[11px] font-bold rounded-md bg-cyan-600 text-black shadow-md transition';
+          } else {
+            btn.className = 'px-2.5 py-1 text-[11px] font-bold rounded-md bg-slate-800 text-slate-300 hover:bg-slate-700 border border-slate-700 transition';
+          }
+        });
+        speedLabel.innerText = `S${level} (${level === 1 ? '30' : level === 2 ? '70' : '100'}% Speed)`;
+      }
+
+      btnS1.addEventListener('click', () => setSpeedLevel(1));
+      btnS2.addEventListener('click', () => setSpeedLevel(2));
+      btnS3.addEventListener('click', () => setSpeedLevel(3));
+
+      // Flight Control Buttons
+      document.getElementById('btnTakeoffLand').addEventListener('click', toggleTakeoffLand);
+      document.getElementById('estopBtn').addEventListener('click', emergencyStop);
+
+      document.getElementById('btnResetPos').addEventListener('click', () => {
+        clearTrail(); hideBoundaryBanner(); boundaryHit = null; lastGood = null; ledAnim = null; resetDebugger();
+        droneState.x = START_POS.x;
+        droneState.y = START_POS.y;
+        droneState.z = 0;
+        droneState.yaw = 0;
+        droneState.isFlying = false;
+        droneState.isTakingOff = false;
+        droneState.isLanding = false;
+        resetFlightTimer();
+        resetBattery();
+        updateStatusBadge();
+        if (cameraMode !== 'orbit') updateFollowCamera(true);
+        logConsole('Reset drone to the start position (0,0,0).');
+      });
+
+      // Camera Presets
+      document.getElementById('camOrbitBtn').addEventListener('click', () => setCameraMode('orbit'));
+      document.getElementById('camChaseBtn').addEventListener('click', () => setCameraMode('chase'));
+      document.getElementById('camFpvBtn').addEventListener('click', () => setCameraMode('fpv'));
+      setCameraButtonState('camOrbitBtn');
+      document.getElementById('btnRefreshMap').addEventListener('click', refreshSensorTestingGround);
+
+      // Mat Selection
+      document.getElementById('matSelect').addEventListener('change', (e) => {
+        const v = e.target.value;
+        if (v.startsWith('map:')) { openSavedMap(v.slice(4)); return; }
+        clearMapFromScene(); // picking a plain mat clears any loaded map
+        if (v === 'color') {
+          applySensorTestingGround();
+          setFloor(v);
+        } else {
+          setFloor(v);
+        }
+        updateRefreshMapButton();
+        logConsole(`Switched arena floor to: ${e.target.options[e.target.selectedIndex].text}`);
+      });
+      updateRefreshMapButton();
+
+      // Python Buttons
+      document.getElementById('btnRunPython').addEventListener('click', runOrContinue);
+      document.getElementById('btnStepFwd').addEventListener('click', stepForward);
+      document.getElementById('btnStepBack').addEventListener('click', stepBack);
+      document.getElementById('btnStopPython').addEventListener('click', () => {
+        scriptAbort = true;
+        isScriptRunning = false;
+        releaseStep(); showLine(0);
+      });
+      { const ta = document.getElementById('pythonCodeInput');
+        ta.addEventListener('scroll', () => { if (curLine) document.getElementById('lineHL').style.top = (12 + (curLine - 1) * 20 - ta.scrollTop) + 'px'; });
+        ta.addEventListener('input', () => showLine(0)); }
+      document.getElementById('btnResetPython').addEventListener('click', () => {
+        scriptAbort = true;
+        isScriptRunning = false;
+        document.getElementById('btnResetPos').click(); // same reset as the Manual tab
+      });
+      document.getElementById('btnTogglePath').addEventListener('click', (e) => {
+        showTrail = !showTrail;
+        if (trailLine) trailLine.visible = showTrail;
+        const b = e.currentTarget;
+        b.classList.toggle('text-cyan-300', showTrail); b.classList.toggle('border-cyan-800', showTrail);
+        b.classList.toggle('text-slate-500', !showTrail); b.classList.toggle('border-slate-700', !showTrail);
+      });
+      document.getElementById('btnClearCode').addEventListener('click', () => {
+        const editor = document.getElementById('pythonCodeInput');
+        // Halt any running script so it can't keep going after the code is gone
+        if (isScriptRunning) { scriptAbort = true; isScriptRunning = false; }
+        // Select-all + delete keeps the browser's undo history, so Ctrl/Cmd+Z restores the code
+        editor.focus();
+        editor.select();
+        let ok = false;
+        try { ok = document.execCommand('delete'); } catch (err) { ok = false; }
+        if (editor.value !== '') editor.value = '';
+        editor.dispatchEvent(new Event('input', { bubbles: true }));
+        logConsole('Code editor cleared (Ctrl/Cmd+Z to undo).');
+      });
+      document.getElementById('btnClearConsole').addEventListener('click', () => {
+        document.getElementById('consoleLog').innerHTML = '';
+      });
+
+      // Start Main Render Loop
+      animate();
+    });
+
+    // Main 60 FPS Render Loop
+    function animate() {
+      requestAnimationFrame(animate);
+
+      // Physics update
+      updatePhysics();
+      if (!droneState.isFlying) pauseFlightTimer();
+      renderFlightTimer();
+      updateBattery();
+      updateLedAnim();
+      if (edgeFlashUntil && performance.now() > edgeFlashUntil) { edgeFrame.visible = false; if (ceilingPane) ceilingPane.visible = false; edgeFlashUntil = 0; }
+      if (pieceFlash && performance.now() > pieceFlash.until) unflashPiece();
+
+      // Controls update / drone-follow cameras
+      if (cameraMode === 'orbit') controls.update();
+      else updateFollowCamera(false);
+
+      // Render Scene
+      renderer.render(scene, camera);
+    }
+  </script>
+</body>
+</html>
