@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- CoDrone EDU 3D Simulator v2.13 -->
+<!-- CoDrone EDU 3D Simulator v2.16 -->
 <html lang="en" class="h-full bg-slate-950">
 <head>
   <meta charset="UTF-8">
@@ -1280,7 +1280,7 @@ Check your Browserslist config to be sure that your targets are set up correctly
         <i class="fa-solid fa-layer-group text-slate-400 text-xs mr-2"></i>
         <label for="matSelect" class="sr-only">Select Arena Mat</label>
         <select id="matSelect" class="bg-transparent text-xs font-medium text-slate-200 focus:outline-none cursor-pointer">
-          <option value="blank" class="bg-slate-900">Blank Course Mat (10' x 12')</option>
+          <option value="blank" class="bg-slate-900">Blank Course Mat (8' x 10')</option>
           <option value="color" class="bg-slate-900">Sensor Testing Ground</option>
         </select>
       </div>
@@ -1293,8 +1293,8 @@ Check your Browserslist config to be sure that your targets are set up correctly
 
       <!-- 3D Viewport Helper Legend -->
       <div class="absolute bottom-3 left-3 bg-slate-900/80 backdrop-blur-md border border-slate-800 rounded-lg px-3 py-1.5 text-[11px] text-slate-400 flex items-center gap-3 pointer-events-none">
-        <span class="flex items-center gap-1"><span class="w-2.5 h-0.5 bg-red-500 inline-block"></span> X Axis (305cm)</span>
-        <span class="flex items-center gap-1"><span class="w-2.5 h-0.5 bg-emerald-500 inline-block"></span> Y Axis (366cm)</span>
+        <span class="flex items-center gap-1"><span class="w-2.5 h-0.5 bg-red-500 inline-block"></span> X Axis (244cm)</span>
+        <span class="flex items-center gap-1"><span class="w-2.5 h-0.5 bg-emerald-500 inline-block"></span> Y Axis (305cm)</span>
         <span class="flex items-center gap-1"><span class="w-2.5 h-0.5 bg-blue-500 inline-block"></span> Z Altitude</span>
       </div>
     </section>
@@ -1652,16 +1652,17 @@ window.CoDroneControllerAPI={Drone:$,parseButton:ct,ButtonEvent:W};
   <script>
     /* ========================================================================
        CODRONE EDU SIMULATOR CORE LOGIC
-       - Dimensions: 10 ft x 12 ft (305 cm x 366 cm)
+       - Dimensions: 8 ft x 10 ft (244 cm x 305 cm)
        - Origin (0,0,0) is the drone's start position (centre of the START box)
        - Scale: 1 unit in Three.js = 1 cm
        ======================================================================== */
 
     // Arena Mat Dimensions in cm
-    const MAT_WIDTH = 305;  // 10 feet
+    const MAT_WIDTH = 243.84;  // 8 feet
     const CEILING_CM = 243.84;           // 8 ft ceiling over the flight area
-    const CEIL_LIMIT = CEILING_CM - 4;   // the drone is ~4 cm tall, so its top touches the ceiling here
-    const MAT_LENGTH = 366; // 12 feet
+    const DRONE_H = 4;                   // drone height (spec sheet: 3.5 cm)
+    const CEIL_LIMIT = CEILING_CM - DRONE_H; // the top of the drone touches the ceiling here
+    const MAT_LENGTH = 304.8; // 10 feet
 
     // The drone's start position. Sensor positions (get_pos_x / get_pos_y) and the crosshair readout
     // are measured from here, like the real drone: x = right, y = forward.
@@ -1695,18 +1696,21 @@ window.CoDroneControllerAPI={Drone:$,parseButton:ct,ButtonEvent:W};
     const CONTROLLER_LED_COLORS=[0x00ff00,0xff0000,0x0000ff,0xffff00,0xff00ff,0x00ffff]; let controllerLedIndex=0;
 
     // Speed multiplier scales (cm per frame approx)
+    // Manual-flight speeds per SECOND (so they are the same on a 60 Hz and a 120 Hz screen).
+    // Estimates matching the Python runner (1 cm/s and 1.8 deg/s per 1% power); replace with measured values.
     const SPEED_SCALES = {
-      1: { linear: 1.2, rotation: 1.5 },  // S1 30%
-      2: { linear: 2.8, rotation: 3.0 },  // S2 70%
-      3: { linear: 4.5, rotation: 5.0 }   // S3 100%
+      1: { linear: 30,  rotation: 54 },   // S1 30%
+      2: { linear: 70,  rotation: 126 },  // S2 70%
+      3: { linear: 100, rotation: 180 }   // S3 100%
     };
+    let lastPhysicsAt = 0;
 
     // Dynamic Sensor Testing Ground objects. A fresh layout is generated each time the
     // Sensor Testing Ground is opened. Color pads change both position and color, while
     // the two obstacle walls change position but keep their horizontal/vertical orientation.
     let COLOR_TARGETS = [
       { x: 75, y: 100, r: 25, name: 'Red', hex: '#ef4444' },
-      { x: 230, y: 100, r: 25, name: 'Green', hex: '#22c55e' }
+      { x: 170, y: 100, r: 25, name: 'Green', hex: '#22c55e' }
     ];
 
     let SENSOR_TEST_WALLS = [
@@ -1744,7 +1748,7 @@ window.CoDroneControllerAPI={Drone:$,parseButton:ct,ButtonEvent:W};
     }
 
     function randomSensorTestingLayout() {
-      // Keep objects comfortably inside the 10' x 12' mat and away from the 30cm start area.
+      // Keep objects comfortably inside the 8' x 10' mat and away from the 30cm start area.
       const MIN_X = 45, MAX_X = MAT_WIDTH - 45;
       const MIN_Y = 45, MAX_Y = MAT_LENGTH - 45;
 
@@ -1765,7 +1769,7 @@ window.CoDroneControllerAPI={Drone:$,parseButton:ct,ButtonEvent:W};
       }
       if (!pads) pads = [
         { x: 80, y: 110, r: 25, ...colorPool[0] },
-        { x: 225, y: 280, r: 25, ...colorPool[1] }
+        { x: 170, y: 230, r: 25, ...colorPool[1] }
       ];
 
       let walls = null;
@@ -1851,11 +1855,11 @@ window.CoDroneControllerAPI={Drone:$,parseButton:ct,ButtonEvent:W};
       }
     }
 
-    // Dynamic Texture Generator for 10x12 Mat
+    // Dynamic Texture Generator for the 8x10 Mat
     function generateMatTexture(type) {
       const canvas = document.createElement('canvas');
       canvas.width = 1024;
-      canvas.height = 1228; // Proportionate to 305x366
+      canvas.height = 1280; // Proportionate to 244x305 (8 x 10 ft)
       const ctx = canvas.getContext('2d');
 
       // Base Background
@@ -1867,20 +1871,20 @@ window.CoDroneControllerAPI={Drone:$,parseButton:ct,ButtonEvent:W};
       ctx.lineWidth = 12;
       ctx.strokeRect(10, 10, canvas.width - 20, canvas.height - 20);
 
-      // Grid Lines (1-Foot Grid = 10 cols, 12 rows)
+      // Grid Lines (1-Foot Grid = 8 cols, 10 rows)
       ctx.lineWidth = 2;
       ctx.strokeStyle = '#334155';
 
-      const colStep = canvas.width / 10;
-      const rowStep = canvas.height / 12;
+      const colStep = canvas.width / 8;
+      const rowStep = canvas.height / 10;
 
-      for (let i = 1; i < 10; i++) {
+      for (let i = 1; i < 8; i++) {
         ctx.beginPath();
         ctx.moveTo(i * colStep, 0);
         ctx.lineTo(i * colStep, canvas.height);
         ctx.stroke();
       }
-      for (let j = 1; j < 12; j++) {
+      for (let j = 1; j < 10; j++) {
         ctx.beginPath();
         ctx.moveTo(0, j * rowStep);
         ctx.lineTo(canvas.width, j * rowStep);
@@ -1960,7 +1964,7 @@ window.CoDroneControllerAPI={Drone:$,parseButton:ct,ButtonEvent:W};
 
       // Camera
       camera = new THREE.PerspectiveCamera(45, width / height, 1, 3000);
-      camera.position.set(152.5, 380, 280); // Orbit perspective
+      camera.position.set(MAT_WIDTH / 2, 330, 250); // Orbit perspective
 
       // Renderer
       renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -1971,7 +1975,7 @@ window.CoDroneControllerAPI={Drone:$,parseButton:ct,ButtonEvent:W};
 
       // Orbit Controls
       controls = new THREE.OrbitControls(camera, renderer.domElement);
-      controls.target.set(152.5, 0, -183); // Center of 10'x12' mat
+      controls.target.set(MAT_WIDTH / 2, 0, -MAT_LENGTH / 2); // Center of the 8'x10' mat
       controls.update();
 
       // Lighting
@@ -1983,8 +1987,8 @@ window.CoDroneControllerAPI={Drone:$,parseButton:ct,ButtonEvent:W};
       dirLight.castShadow = true;
       scene.add(dirLight);
 
-      // 10' x 12' Arena Floor Plane Mesh
-      // Three.js Plane: X = 305, Z = 366. Three.js center at (152.5, 0, -183)
+      // 8' x 10' Arena Floor Plane Mesh
+      // Three.js Plane: X = 244, Z = 305. Three.js center at (122, 0, -152)
       const planeGeo = new THREE.PlaneGeometry(MAT_WIDTH, MAT_LENGTH);
       const matTexture = generateMatTexture('blank');
       const planeMat = new THREE.MeshStandardMaterial({
@@ -2036,32 +2040,32 @@ window.CoDroneControllerAPI={Drone:$,parseButton:ct,ButtonEvent:W};
       droneMesh = new THREE.Group();
 
       // Center Chassis Body
-      const bodyGeo = new THREE.BoxGeometry(14, 4, 14);
+      const bodyGeo = new THREE.BoxGeometry(7, 3.5, 7); // centre body; with the guards the whole drone is 14 cm x 14 cm
       const bodyMat = new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.3 });
       const body = new THREE.Mesh(bodyGeo, bodyMat);
       droneMesh.add(body);
 
       // Top RGB Status LED Light
-      const ledGeo = new THREE.SphereGeometry(2, 16, 16);
+      const ledGeo = new THREE.SphereGeometry(1.3, 16, 16);
       const ledMat = new THREE.MeshBasicMaterial({ color: 0x00ff00 });
       topLedLight = new THREE.Mesh(ledGeo, ledMat);
-      topLedLight.position.set(0, 2.5, 0);
+      topLedLight.position.set(0, 2, 0);
       droneMesh.add(topLedLight);
       // Soft glow around the LED so colours and effects are easy to see from the default camera distance
-      ledGlow = new THREE.Mesh(new THREE.SphereGeometry(5.5, 16, 16), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.35, depthWrite: false }));
+      ledGlow = new THREE.Mesh(new THREE.SphereGeometry(3.6, 16, 16), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.35, depthWrite: false }));
       topLedLight.add(ledGlow);
 
       // Propeller Guard Rings & Rotors
       const propPositions = [
-        [7, 0, -7],   // Front Right
-        [-7, 0, -7],  // Front Left
-        [7, 0, 7],    // Rear Right
-        [-7, 0, 7]    // Rear Left
+        [3.8, 0, -3.8],   // Front Right
+        [-3.8, 0, -3.8],  // Front Left
+        [3.8, 0, 3.8],    // Rear Right
+        [-3.8, 0, 3.8]    // Rear Left
       ];
 
       propPositions.forEach((pos) => {
         // Guard Ring
-        const ringGeo = new THREE.TorusGeometry(4.5, 0.4, 8, 24);
+        const ringGeo = new THREE.TorusGeometry(3.2, 0.3, 8, 24);
         const ringMat = new THREE.MeshStandardMaterial({ color: 0xef4444, roughness: 0.4 }); // CoDrone red guards
         const ring = new THREE.Mesh(ringGeo, ringMat);
         ring.rotation.x = Math.PI / 2;
@@ -2069,7 +2073,7 @@ window.CoDroneControllerAPI={Drone:$,parseButton:ct,ButtonEvent:W};
         droneMesh.add(ring);
 
         // Propeller Blades
-        const bladeGeo = new THREE.BoxGeometry(7, 0.2, 1);
+        const bladeGeo = new THREE.BoxGeometry(5, 0.15, 0.7);
         const bladeMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
         const blade = new THREE.Mesh(bladeGeo, bladeMat);
         blade.position.set(pos[0], 0.5, pos[2]);
@@ -2215,7 +2219,7 @@ window.CoDroneControllerAPI={Drone:$,parseButton:ct,ButtonEvent:W};
       scene.add(trailLine);
 
       // Red frame that sits exactly on top of the mat's bold light-blue border and lights up when the drone reaches the edge
-      const W = MAT_WIDTH, L = MAT_LENGTH, px = W / 1024, py = L / 1228; // the mat texture is 1024 x 1228 px
+      const W = MAT_WIDTH, L = MAT_LENGTH, px = W / 1024, py = L / 1280; // the mat texture is 1024 x 1280 px
       const outer = new THREE.Shape();
       outer.moveTo(2 * px, 2 * py); outer.lineTo(W - 2 * px, 2 * py); outer.lineTo(W - 2 * px, L - 2 * py); outer.lineTo(2 * px, L - 2 * py); outer.closePath();
       const inner = new THREE.Path();
@@ -2636,18 +2640,21 @@ window.CoDroneControllerAPI={Drone:$,parseButton:ct,ButtonEvent:W};
 
     // Main Physics and Frame Update Loop
     function updatePhysics() {
-      const speedCfg = SPEED_SCALES[droneState.speedLevel];
+      const nowP = performance.now(), dt = lastPhysicsAt ? Math.min((nowP - lastPhysicsAt) / 1000, 0.05) : 1 / 60; lastPhysicsAt = nowP;
+      const sc = SPEED_SCALES[droneState.speedLevel];
+      const speedCfg = { linear: sc.linear * dt, rotation: sc.rotation * dt }; // distance / turn for this frame
+      const ease = 1 - Math.pow(0.92, dt * 60); // takeoff / landing smoothing, the same at any refresh rate
 
       // Smooth Takeoff / Landing Elevation
       if (droneState.isTakingOff) {
-        droneState.z += (droneState.targetZ - droneState.z) * 0.08;
+        droneState.z += (droneState.targetZ - droneState.z) * ease;
         if (Math.abs(droneState.z - droneState.targetZ) < 1) {
           droneState.z = droneState.targetZ;
           droneState.isTakingOff = false;
           logConsole(`Hover altitude reached (${droneState.z.toFixed(1)} cm).`);
         }
       } else if (droneState.isLanding) {
-        droneState.z += (droneState.targetZ - droneState.z) * 0.08;
+        droneState.z += (droneState.targetZ - droneState.z) * ease;
         const fl = floorBelow();
         if (droneState.z < fl + 1) {
           droneState.z = fl; // 0 = the floor, or the top of the cube it landed on
@@ -2706,7 +2713,7 @@ window.CoDroneControllerAPI={Drone:$,parseButton:ct,ButtonEvent:W};
           droneState.y += (forwardY * ctl.pitch + rightY * ctl.roll) * speedCfg.linear;
         }
 
-        // Keep drone within the 10' x 12' mat (305cm x 366cm); flashes the edge when it is reached
+        // Keep drone within the 8' x 10' mat (244cm x 305cm); flashes the edge when it is reached
         clampToMat();
         droneState.z = Math.max(0, Math.min(CEIL_LIMIT, droneState.z));
       }
@@ -2758,7 +2765,7 @@ window.CoDroneControllerAPI={Drone:$,parseButton:ct,ButtonEvent:W};
 
       let minDist = 999;
 
-      // Check distance to 4 boundary planes (X=0, X=305, Y=0, Y=366)
+      // Check distance to 4 boundary planes (X=0, X=244, Y=0, Y=305)
       if (dirX > 0) minDist = Math.min(minDist, (MAT_WIDTH - droneState.x) / dirX);
       if (dirX < 0) minDist = Math.min(minDist, (0 - droneState.x) / dirX);
       if (dirY > 0) minDist = Math.min(minDist, (MAT_LENGTH - droneState.y) / dirY);
@@ -3177,18 +3184,22 @@ window.CoDroneControllerAPI={Drone:$,parseButton:ct,ButtonEvent:W};
     const MapEditor = (() => {
       const IN = 2.54, W = MAT_WIDTH, L = MAT_LENGTH;
       // One Aerial Drone Competition Field Elements Kit (cm; REC Mission 2027 game manual)
+      // Keyhole board centre panel: two rectangular openings, both centred left-to-right (measured by the teacher).
+      // top = distance from the top of the panel to the top of the opening.
+      const TRIFOLD_HOLES = [{ w: 12 * IN, h: 5 * IN, top: 3 * IN }, { w: 6 * IN, h: 5 * IN, top: 11 * IN }];
       const KIT = [
         { id: 'arch_red',   name: 'Red Arch Gate',       short: 'Red Arch',        qty: 1, kind: 'gate', w: 102 * IN, d: 12, open: 60 * IN, color: '#ef4444' },
         { id: 'arch_blue',  name: 'Blue Arch Gate',      short: 'Blue Arch',       qty: 1, kind: 'gate', w: 102 * IN, d: 12, open: 60 * IN, color: '#3b82f6' },
-        { id: 'key_yellow', name: 'Yellow Keyhole Gate', short: 'Yellow Keyhole',  qty: 1, kind: 'gate', w: 30 * IN,  d: 6,  open: 24 * IN, color: '#eab308' },
-        { id: 'key_green',  name: 'Green Keyhole Gate',  short: 'Green Keyhole',   qty: 1, kind: 'gate', w: 30 * IN,  d: 6,  open: 24 * IN, color: '#22c55e' },
+        { id: 'key_yellow', name: 'Yellow Ring Gate',    short: 'Yellow Ring',     qty: 1, kind: 'gate', w: 30 * IN,  d: 6,  open: 24 * IN, color: '#eab308' },
+        { id: 'key_green',  name: 'Green Ring Gate',     short: 'Green Ring',      qty: 1, kind: 'gate', w: 30 * IN,  d: 6,  open: 24 * IN, color: '#22c55e' },
+        { id: 'keyhole_board', name: 'Keyhole Board',    short: 'Keyhole Board',   qty: 1, kind: 'trifold', w: 24 * IN, d: 20 * IN, panelH: 34 * IN, t: 1.2, holes: TRIFOLD_HOLES, color: '#d1d5db' },
         { id: 'pad_red',    name: 'Red Landing Pad',     short: 'Red Pad',         qty: 1, kind: 'pad',  r: 15 * IN, bull: 5 * IN, color: '#ef4444' },
         { id: 'pad_blue',   name: 'Blue Landing Pad',    short: 'Blue Pad',        qty: 1, kind: 'pad',  r: 15 * IN, bull: 5 * IN, color: '#3b82f6' },
-        { id: 'cube_small', name: 'Blue Cube (12")',     short: 'Blue Cube 12"',   qty: 1, kind: 'cube', w: 12 * IN, d: 12 * IN, h: 13 * IN, color: '#3b82f6' },
-        { id: 'cube_large', name: 'Red Cube (18")',      short: 'Red Cube 18"',    qty: 1, kind: 'cube', w: 17 * IN, d: 17 * IN, h: 20 * IN, color: '#ef4444' },
-        { id: 'cmat1',      name: 'Color Mat 1',         short: 'Color Mat 1',     qty: 1, kind: 'mat',  w: 60, d: 60, color: '#ef4444' },
-        { id: 'cmat2',      name: 'Color Mat 2',         short: 'Color Mat 2',     qty: 1, kind: 'mat',  w: 60, d: 60, color: '#22c55e' },
-        { id: 'cmat3',      name: 'Color Mat 3',         short: 'Color Mat 3',     qty: 1, kind: 'mat',  w: 60, d: 60, color: '#3b82f6' },
+        { id: 'cube_small', name: 'Blue Cube (12")',     short: 'Blue Cube 12"',   qty: 1, kind: 'cube', w: 12 * IN, d: 12 * IN, h: 14 * IN, holeW: 6 * IN, holeH: 5 * IN, color: '#3b82f6' },
+        { id: 'cube_large', name: 'Red Cube (16")',      short: 'Red Cube 16"',    qty: 1, kind: 'cube', w: 16 * IN, d: 16 * IN, h: 20 * IN, holeW: 12 * IN, holeH: 10 * IN, color: '#ef4444' },
+        { id: 'cmat1',      name: 'Color Mat 1',         short: 'Color Mat 1',     qty: 1, kind: 'mat',  w: 24 * IN, d: 24 * IN, color: '#ef4444' },
+        { id: 'cmat2',      name: 'Color Mat 2',         short: 'Color Mat 2',     qty: 1, kind: 'mat',  w: 24 * IN, d: 24 * IN, color: '#22c55e' },
+        { id: 'cmat3',      name: 'Color Mat 3',         short: 'Color Mat 3',     qty: 1, kind: 'mat',  w: 24 * IN, d: 24 * IN, color: '#3b82f6' },
         { id: 'sensor_wall', name: 'Sensor Wall',       short: 'Sensor Wall',     qty: 1, kind: 'wall', w: 50, d: 10, h: 100, color: '#64748b' },
         { id: 'tunnel',     name: 'Tunnel',              short: 'Tunnel',          qty: 1, kind: 'tunnel', w: 23.5 * IN, d: 19 * IN, color: '#94a3b8' }
       ];
@@ -3256,6 +3267,12 @@ window.CoDroneControllerAPI={Drone:$,parseButton:ct,ButtonEvent:W};
         if (d.kind === 'pad') {
           ctx.beginPath(); ctx.arc(0, 0, d.r * s, 0, 7); ctx.fill(); ctx.stroke();
           ctx.fillStyle = '#f8fafc'; ctx.beginPath(); ctx.arc(0, 0, d.bull * s, 0, 7); ctx.fill();
+        } else if (d.kind === 'trifold') { // keyhole board seen from above: centre panel at the back, a side panel folded forward at each end
+          const w = d.w * s, h = d.d * s, tt = Math.max(4, d.t * s);
+          ctx.fillRect(-w / 2, h / 2 - tt, w, tt); ctx.strokeRect(-w / 2, h / 2 - tt, w, tt);
+          [-w / 2, w / 2 - tt].forEach(x => { ctx.fillRect(x, -h / 2, tt, h); ctx.strokeRect(x, -h / 2, tt, h); });
+          ctx.fillStyle = '#1e293b'; d.holes.forEach(hh => ctx.fillRect(-hh.w / 2 * s, h / 2 - tt, hh.w * s, tt)); // the two keyholes
+          ctx.fillStyle = d.color; arrow(d.d / 2 + 14);
         } else if (d.kind === 'gate') {
           const leg = (d.w - d.open) / 2 * s;
           [-d.w / 2 * s, d.w / 2 * s - leg].forEach(x => { ctx.fillRect(x, -d.d / 2 * s, leg, d.d * s); ctx.strokeRect(x, -d.d / 2 * s, leg, d.d * s); });
@@ -3333,7 +3350,8 @@ window.CoDroneControllerAPI={Drone:$,parseButton:ct,ButtonEvent:W};
     })();
 
     // ---- 3D versions of the pieces (visual only for now: the drone flies through them) ----
-    const KEYHOLE_HEIGHT = 100; // cm - placeholder: the manual doesn't give the keyhole gate's height off the floor
+    const KEYHOLE_HEIGHT = 100; // cm - placeholder height of the ring gates' centre (not measured yet)
+    const CUBE_WALL = 1; // cm - assumed thickness of the cube walls and roof (not measured yet)
     let mapGroup = null;
     function archShape() {
       const ao = 129.55, ho = 188, ai = 76.2, hi = 160, sh = new THREE.Shape();
@@ -3348,7 +3366,14 @@ window.CoDroneControllerAPI={Drone:$,parseButton:ct,ButtonEvent:W};
       if (d.kind === 'gate' && it.type.startsWith('arch')) {
         const geo = new THREE.ExtrudeGeometry(archShape(), { depth: d.d, bevelEnabled: false }); geo.translate(0, 0, -d.d / 2);
         add(geo, mat());
-      } else if (d.kind === 'gate') { // keyhole gate: ring on a pole
+      } else if (d.kind === 'trifold') { // keyhole board: flat centre panel with two openings, side panels folded forward at 90 degrees
+        const PH = d.panelH, T = d.t, hw = d.w / 2, hd = d.d / 2;
+        const sh = new THREE.Shape(); sh.moveTo(-hw, 0); sh.lineTo(hw, 0); sh.lineTo(hw, PH); sh.lineTo(-hw, PH); sh.closePath();
+        d.holes.forEach(h => { const p = new THREE.Path(), y1 = PH - h.top, y0 = y1 - h.h; p.moveTo(-h.w / 2, y0); p.lineTo(h.w / 2, y0); p.lineTo(h.w / 2, y1); p.lineTo(-h.w / 2, y1); p.closePath(); sh.holes.push(p); });
+        const geo = new THREE.ExtrudeGeometry(sh, { depth: T, bevelEnabled: false }); geo.translate(0, 0, -T / 2);
+        add(geo, mat(), 0, 0, hd - T / 2);
+        [-1, 1].forEach(sg => add(new THREE.BoxGeometry(T, PH, d.d), mat(), sg * (hw - T / 2), PH / 2, 0));
+      } else if (d.kind === 'gate') { // ring gate: a ring on a pole
         const R = (d.w + d.open) / 4, tube = (d.w - d.open) / 4;
         add(new THREE.TorusGeometry(R, tube, 12, 40), mat(), 0, KEYHOLE_HEIGHT, 0);
         add(new THREE.CylinderGeometry(1.2, 1.2, KEYHOLE_HEIGHT - R, 8), mat({ color: '#94a3b8' }), 0, (KEYHOLE_HEIGHT - R) / 2, 0);
@@ -3357,7 +3382,18 @@ window.CoDroneControllerAPI={Drone:$,parseButton:ct,ButtonEvent:W};
         add(new THREE.CylinderGeometry(d.r, d.r, 1, 40), mat(), 0, 0.5, 0);
         add(new THREE.CylinderGeometry(d.bull, d.bull, 1.1, 32), mat({ color: '#f8fafc' }), 0, 0.55, 0);
       } else if (d.kind === 'cube') {
-        add(new THREE.BoxGeometry(d.w, d.h, d.d), mat({ transparent: true, opacity: 0.85 }), 0, d.h / 2, 0);
+        if (!d.holeW) add(new THREE.BoxGeometry(d.w, d.h, d.d), mat({ transparent: true, opacity: 0.85 }), 0, d.h / 2, 0);
+        else { // hollow cube: four walls, each with an opening to fly through, plus a solid roof
+          const T = CUBE_WALL, hb = (d.h - d.holeH) / 2, m = mat({ transparent: true, opacity: 0.9 });
+          const panel = (width) => {
+            const sh = new THREE.Shape(); sh.moveTo(-width / 2, 0); sh.lineTo(width / 2, 0); sh.lineTo(width / 2, d.h); sh.lineTo(-width / 2, d.h); sh.closePath();
+            const p = new THREE.Path(); p.moveTo(-d.holeW / 2, hb); p.lineTo(d.holeW / 2, hb); p.lineTo(d.holeW / 2, hb + d.holeH); p.lineTo(-d.holeW / 2, hb + d.holeH); p.closePath(); sh.holes.push(p);
+            const geo = new THREE.ExtrudeGeometry(sh, { depth: T, bevelEnabled: false }); geo.translate(0, 0, -T / 2); return geo;
+          };
+          add(panel(d.w), m, 0, 0, d.d / 2 - T / 2); add(panel(d.w), m, 0, 0, -(d.d / 2 - T / 2));
+          [-1, 1].forEach(sg => { const side = add(panel(d.d - 2 * T), m, sg * (d.w / 2 - T / 2), 0, 0); side.rotation.y = Math.PI / 2; });
+          add(new THREE.BoxGeometry(d.w, T, d.d), m, 0, d.h - T / 2, 0);
+        }
       } else if (d.kind === 'wall') { // the Sensor Testing Ground wall: a slab with a light cap so it shows up from every camera
         add(new THREE.BoxGeometry(d.w, d.h, d.d), mat({ roughness: 0.65 }), 0, d.h / 2, 0);
         add(new THREE.BoxGeometry(d.w, 2, d.d + 2), mat({ color: '#cbd5e1', roughness: 0.55 }), 0, d.h - 1, 0);
@@ -3378,7 +3414,18 @@ window.CoDroneControllerAPI={Drone:$,parseButton:ct,ButtonEvent:W};
       if (d.kind === 'pad' || d.kind === 'mat') return false; // flat on the floor
       const dx = x - it.x, dy = y - it.y, t = it.rot * Math.PI / 180;
       const lx = dx * Math.cos(t) - dy * Math.sin(t), ly = dx * Math.sin(t) + dy * Math.cos(t); // lx = across, ly = along the piece's forward direction
-      if (d.kind === 'cube') return Math.abs(lx) < d.w / 2 + R && Math.abs(ly) < d.d / 2 + R && z < d.h - 0.3;
+      if (d.kind === 'cube') {
+        const hw = d.w / 2, hd = d.d / 2, T = CUBE_WALL, DH = R > 2 ? DRONE_H : 0; // DH: a thin laser beam has no height
+        if (Math.abs(lx) >= hw + R || Math.abs(ly) >= hd + R || z >= d.h - 0.3) return false;
+        if (!d.holeW) return true; // a plain solid block
+        if (z + DH > d.h - T) return true; // the roof
+        const inX = Math.abs(lx) > hw - T - R, inY = Math.abs(ly) > hd - T - R; // touching a wall panel?
+        if (!inX && !inY) return false; // inside the hollow cube
+        if (inX && inY) return true; // corner
+        const along = inX ? ly : lx, hb = (d.h - d.holeH) / 2; // where along that wall, and the bottom of its opening
+        const fits = Math.abs(along) <= d.holeW / 2 - R && z >= hb && z + DH <= hb + d.holeH;
+        return !fits; // only passes if the whole drone fits through the opening
+      }
       if (d.kind === 'wall') return Math.abs(lx) < d.w / 2 + R && Math.abs(ly) < d.d / 2 + R && z < d.h - 0.3;
       if (d.kind === 'gate' && it.type.startsWith('arch')) {
         if (Math.abs(ly) >= d.d / 2 + R) return false;
@@ -3386,7 +3433,16 @@ window.CoDroneControllerAPI={Drone:$,parseButton:ct,ButtonEvent:W};
         const ri = 76.2 - R, free = z < 83.8 ? Math.abs(lx) < ri : Math.hypot(lx, z - 83.8) < ri;      // opening, shrunk by the size of the thing
         return inOuter && !free;
       }
-      if (d.kind === 'gate') { // keyhole gate: the ring, or its pole
+      if (d.kind === 'trifold') { // keyhole board: two folded-forward side panels and a centre panel with two openings
+        const PH = d.panelH, T = d.t, hw = d.w / 2, hd = d.d / 2, DH = R > 2 ? DRONE_H : 0;
+        if (z >= PH - 0.3 || Math.abs(lx) >= hw + R || ly <= -hd - R || ly >= hd + R) return false;
+        if (Math.abs(lx) > hw - T - R) return true; // a side panel
+        if (ly < -hd + T + R) { // at the centre panel: solid unless the whole drone fits through an opening
+          return !d.holes.some(h => { const y1 = PH - h.top, y0 = y1 - h.h; return Math.abs(lx) <= h.w / 2 - R && z >= y0 && z + DH <= y1; });
+        }
+        return false;
+      }
+      if (d.kind === 'gate') { // ring gate: the ring, or its pole
         const rad = Math.hypot(lx, z - KEYHOLE_HEIGHT);
         return (Math.abs(ly) < d.d / 2 + R && rad < d.w / 2 + R && rad > d.open / 2 - R) || (Math.hypot(lx, ly) < 1.2 + R && z < KEYHOLE_HEIGHT - d.w / 2);
       }
@@ -3411,14 +3467,14 @@ window.CoDroneControllerAPI={Drone:$,parseButton:ct,ButtonEvent:W};
     // Height the drone can land on: the top of a cube if MORE than half of the drone is over it, otherwise the floor
     function floorBelow() {
       let h = 0;
-      for (const p of activePieces) if (p.def.kind === 'cube' && p.def.h > h && overFraction(p) > 0.5) h = p.def.h;
+      for (const p of activePieces) if (p.def.kind === 'cube' && p.def.h > h && (droneState.z >= p.def.h - 1 || (lastGood && lastGood.z >= p.def.h - 1)) && overFraction(p) > 0.5) h = p.def.h; // only from above: a drone inside a hollow cube stays on the floor
       return h;
     }
     // Height of whatever is directly under the drone's centre (what the bottom range sensor sees)
     function surfaceUnder() {
       let h = 0;
       for (const p of activePieces) {
-        if (p.def.kind !== 'cube' || p.def.h <= h) continue;
+        if (p.def.kind !== 'cube' || p.def.h <= h || droneState.z < p.def.h - 1) continue; // inside the cube it sees the floor, not the roof
         const it = p.item, dx = droneState.x - it.x, dy = droneState.y - it.y, t = it.rot * Math.PI / 180;
         if (Math.abs(dx * Math.cos(t) - dy * Math.sin(t)) <= p.def.w / 2 && Math.abs(dx * Math.sin(t) + dy * Math.cos(t)) <= p.def.d / 2) h = p.def.h;
       }
@@ -3694,8 +3750,8 @@ window.CoDroneControllerAPI={Drone:$,parseButton:ct,ButtonEvent:W};
 
       if (mode === 'orbit') {
         controls.enabled = true;
-        camera.position.set(152.5, 380, 280);
-        controls.target.set(152.5, 0, -183);
+        camera.position.set(MAT_WIDTH / 2, 330, 250);
+        controls.target.set(MAT_WIDTH / 2, 0, -MAT_LENGTH / 2);
         controls.update();
         setCameraButtonState('camOrbitBtn');
         return;
@@ -3751,7 +3807,7 @@ window.CoDroneControllerAPI={Drone:$,parseButton:ct,ButtonEvent:W};
       }
     }
 
-    const EDGE = 10; // cm: how close the drone's centre can get to the edge of the mat
+    const EDGE = 7; // cm: the drone is 14 cm wide (5.5 in), so its centre can get no closer than 7 cm to a wall or the mat's edge
     let boundaryHit = null, lastCall = '', lastBannerAt = 0, lastGood = null;
     const relStr = v => { const r = Math.round(v); return (r > 0 ? '+' : '') + r; };
 
