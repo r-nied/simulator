@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- 3D Drone Simulator v2.10.3 (SemVer: MAJOR.MINOR.PATCH). Old two-number files such as v2.21 were renamed to this scheme - see CHANGELOG.md -->
+<!-- CoDrone EDU 3D Simulator v2.16 -->
 <html lang="en" class="h-full bg-slate-950">
 <head>
   <meta charset="UTF-8">
@@ -1224,7 +1224,6 @@ Check your Browserslist config to be sure that your targets are set up correctly
       <div>
         <h1 class="text-base font-bold tracking-tight text-white flex items-center gap-2">
           3D Drone Simulator
-          <span id="appVersion" class="text-[10px] font-mono font-semibold text-slate-500 tracking-normal"></span>
         </h1>
       </div>
     </div>
@@ -1658,9 +1657,6 @@ window.CoDroneControllerAPI={Drone:$,parseButton:ct,ButtonEvent:W};
        - Scale: 1 unit in Three.js = 1 cm
        ======================================================================== */
 
-    // Version shown next to the title (also update the comment on line 2 and the file name). SemVer: MAJOR.MINOR.PATCH
-    const APP_VERSION = '2.10.3';
-
     // Arena Mat Dimensions in cm
     const MAT_WIDTH = 243.84;  // 8 feet
     const CEILING_CM = 243.84;           // 8 ft ceiling over the flight area
@@ -1696,19 +1692,16 @@ window.CoDroneControllerAPI={Drone:$,parseButton:ct,ButtonEvent:W};
     let controllerDrone=null, controllerConnected=false, controllerConnecting=false, controllerButtonUnsub=null, controllerL1Timer=null, controllerL1Long=false, controllerFailures=0, controllerLastRead=0, controllerWantsReconnect=false, controllerLastLedOff=0;
     const controllerAxes = { t: 0, yaw: 0, pitch: 0, roll: 0 }; // latest stick values (-1..1), applied every frame by updatePhysics
     let flightElapsedMs=0, flightTimerStartedAt=null, flightTimerRunning=false;
-    const CONTROLLER_DEADZONE=0.10, L1_LONG_PRESS_MS=1000, CONTROLLER_L1_BUTTON=1, CONTROLLER_L2_BUTTON=2, CONTROLLER_R1_BUTTON=4, CONTROLLER_R2_BUTTON=8; let controllerR2Held=false;
+    const CONTROLLER_DEADZONE=0.10, L1_LONG_PRESS_MS=1000, CONTROLLER_L1_BUTTON=1, CONTROLLER_L2_BUTTON=2, CONTROLLER_R1_BUTTON=4;
     const CONTROLLER_LED_COLORS=[0x00ff00,0xff0000,0x0000ff,0xffff00,0xff00ff,0x00ffff]; let controllerLedIndex=0;
 
     // Speed multiplier scales (cm per frame approx)
-    // MEASURED (teacher, Oct 2026): at 100% power for 1 second the real drone travelled an average of 64 in = 162.6 cm.
-    // Assumes distance grows in proportion to power; more measurements (other powers / durations) will refine this.
-    const DRONE_CM_PER_S_PER_PERCENT = 162.6 / 100;
     // Manual-flight speeds per SECOND (so they are the same on a 60 Hz and a 120 Hz screen).
     // Estimates matching the Python runner (1 cm/s and 1.8 deg/s per 1% power); replace with measured values.
     const SPEED_SCALES = {
-      1: { linear: 30 * DRONE_CM_PER_S_PER_PERCENT,  rotation: 54 },   // S1 30%
-      2: { linear: 70 * DRONE_CM_PER_S_PER_PERCENT,  rotation: 126 },  // S2 70%
-      3: { linear: 100 * DRONE_CM_PER_S_PER_PERCENT, rotation: 180 }   // S3 100%
+      1: { linear: 30,  rotation: 54 },   // S1 30%
+      2: { linear: 70,  rotation: 126 },  // S2 70%
+      3: { linear: 100, rotation: 180 }   // S3 100%
     };
     let lastPhysicsAt = 0;
 
@@ -2309,7 +2302,7 @@ window.CoDroneControllerAPI={Drone:$,parseButton:ct,ButtonEvent:W};
       if (e.repeat) return;
       keysPressed[e.code] = true;
       updateKeyCapVisual(e.code, true);
-      if (e.code === 'Space' && manualFlightActive()) toggleTakeoffLand();
+      if (e.code === 'Space') toggleTakeoffLand();
       if (e.code === 'Escape') emergencyStop();
     });
 
@@ -2332,7 +2325,7 @@ window.CoDroneControllerAPI={Drone:$,parseButton:ct,ButtonEvent:W};
       disconnectBtn.className=controllerConnected?bright:dark;
     }
     // ===== Physical CoDrone controller (USB, Web Serial) =====
-    const CONTROLLER_HINT = 'L1: hold 1 s = takeoff/land, tap = speed  |  L2 = camera view  |  R1 = LED color  |  hold R2 + sticks = turn the view';
+    const CONTROLLER_HINT = 'L1: hold 1 s = takeoff/land, tap = speed  |  L2 = camera view  |  R1 = LED color';
     const CONTROLLER_LIGHTS_OFF = true; // the controller flashes red until a real drone is paired - keep its lights off while it drives the simulator
     const controllerSleep = ms => new Promise(res => setTimeout(res, ms));
     const controllerTimeout = (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), ms))]);
@@ -2358,22 +2351,8 @@ window.CoDroneControllerAPI={Drone:$,parseButton:ct,ButtonEvent:W};
 
     // Stick values (-1..1) for the physics loop, or null when the sticks must be ignored:
     // not connected, a Python program is flying the drone, or the last reading is stale (never fly on old data).
-    // While R2 is held, the sticks drive the Orbit camera: either stick left/right spins the view around the map,
-    // right stick up/down tilts it, left stick up/down zooms. The drone just hovers.
-    let lastCamAt = 0;
-    function updateControllerCamera() {
-      const now = performance.now(), dt = lastCamAt ? Math.min((now - lastCamAt) / 1000, 0.05) : 0; lastCamAt = now;
-      if (!controllerConnected || !controllerR2Held || cameraMode !== 'orbit' || now - controllerLastRead > 400 || !dt) return;
-      const a = controllerAxes, spin = Math.max(-1, Math.min(1, a.roll + a.yaw));
-      if (!spin && !a.pitch && !a.t) return;
-      const off = camera.position.clone().sub(controls.target), sph = new THREE.Spherical().setFromVector3(off);
-      sph.theta -= spin * 1.8 * dt;
-      sph.phi = Math.max(0.12, Math.min(1.5, sph.phi - a.pitch * 1.0 * dt));
-      sph.radius = Math.max(80, Math.min(900, sph.radius - a.t * 300 * dt));
-      off.setFromSpherical(sph); camera.position.copy(controls.target).add(off); camera.lookAt(controls.target);
-    }
     function controllerInput() {
-      if (!controllerConnected || !manualFlightActive() || controllerR2Held || performance.now() - controllerLastRead > 400) return null; // R2 held = the sticks move the camera instead
+      if (!controllerConnected || isScriptRunning || performance.now() - controllerLastRead > 400) return null;
       return controllerAxes;
     }
 
@@ -2383,18 +2362,6 @@ window.CoDroneControllerAPI={Drone:$,parseButton:ct,ButtonEvent:W};
         if (typeof controllerDrone.controllerLedOff === 'function') await controllerDrone.controllerLedOff();
         else if (typeof controllerDrone.setControllerLed === 'function') await controllerDrone.setControllerLed(0, 0, 0, 0);
       } catch (e) { /* the lights are cosmetic - never let them break the connection */ }
-    }
-
-    // Put the controller's lights back to the red double-blink it shows when it is not connected to anything.
-    // Light mode 36 is "double flicker" = the standard red blink-blink (34 = hold, 35 = single flicker); the manual brightness we set to 0 must be raised again first.
-    // How long one blink-blink cycle lasts, in the controller's own units (NOT milliseconds). Tested so far on a real controller:
-    // 3 = far too fast, 1000 = far too slow. Raise it to blink slower, lower it to blink faster.
-    const CONTROLLER_BLINK_INTERVAL = 120;
-    async function controllerLightsFlash(d) {
-      try {
-        if (typeof d.setControllerLed === 'function') await d.setControllerLed(255, 0, 0, 255);
-        if (typeof d.setControllerLedMode === 'function') await d.setControllerLedMode(255, 0, 0, 36, CONTROLLER_BLINK_INTERVAL);
-      } catch (e) { logConsole('Could not restore the controller lights: ' + ((e && e.message) || e)); }
     }
 
     // Reads the sticks about 25 times a second. One read at a time, and every read has a time limit,
@@ -2439,17 +2406,13 @@ window.CoDroneControllerAPI={Drone:$,parseButton:ct,ButtonEvent:W};
       const button = Number(b.button), event = Number(b.event);
       const down = Number(api.ButtonEvent && api.ButtonEvent.Down != null ? api.ButtonEvent.Down : 1);
       const up = Number(api.ButtonEvent && api.ButtonEvent.Up != null ? api.ButtonEvent.Up : 3);
-      if (button === CONTROLLER_L1_BUTTON && manualFlightActive()) {
+      if (button === CONTROLLER_L1_BUTTON && !isScriptRunning) {
         if (event === down) { // hold for 1 second = takeoff / land, a quick tap = change speed
           clearTimeout(controllerL1Timer); controllerL1Long = false;
           controllerL1Timer = setTimeout(() => { controllerL1Long = true; toggleTakeoffLand(); }, L1_LONG_PRESS_MS);
         } else if (event === up) { clearTimeout(controllerL1Timer); if (!controllerL1Long) cycleControllerSpeed(); }
-      } else if (button === CONTROLLER_R1_BUTTON && event === up && manualFlightActive()) cycleControllerLed();
+      } else if (button === CONTROLLER_R1_BUTTON && event === up && !isScriptRunning) cycleControllerLed();
       else if (button === CONTROLLER_L2_BUTTON && event === up) cycleControllerView();
-      else if (button === CONTROLLER_R2_BUTTON) { // hold R2: the sticks turn the view instead of flying
-        if (event === down) { controllerR2Held = true; if (controllerAxes) logConsole('Controller: R2 held - sticks move the camera.'); }
-        else if (event === up) controllerR2Held = false;
-      } else if (event === down && ![CONTROLLER_L1_BUTTON, CONTROLLER_L2_BUTTON, CONTROLLER_R1_BUTTON].includes(button)) logConsole('Controller: unassigned button ' + button + ' pressed.');
     }
 
     // Opens the controller. With a port (an already-approved USB device) no picker is needed - that is how it reconnects by itself.
@@ -2491,13 +2454,12 @@ window.CoDroneControllerAPI={Drone:$,parseButton:ct,ButtonEvent:W};
 
     async function disconnectPhysicalController(quiet) {
       const was = controllerConnected;
-      controllerConnected = false; controllerR2Held = false; clearTimeout(controllerL1Timer);
+      controllerConnected = false; clearTimeout(controllerL1Timer);
       if (!quiet) controllerWantsReconnect = false; // the student chose to disconnect: do not reconnect behind their back
       Object.assign(controllerAxes, { t: 0, yaw: 0, pitch: 0, roll: 0 });
       try { if (controllerButtonUnsub) controllerButtonUnsub(); } catch (e) {}
       controllerButtonUnsub = null;
       const d = controllerDrone; controllerDrone = null;
-      if (d && !quiet) { try { await controllerTimeout(controllerLightsFlash(d), 1200); } catch (e) {} } // choose DISCONNECT: the controller goes back to flashing
       try { if (d) await controllerTimeout(d.disconnect(), 1500); } catch (e) {}
       if (!quiet) { setControllerStatus('not connected'); if (was) logConsole('Physical CoDrone controller disconnected.'); }
     }
@@ -2706,7 +2668,6 @@ window.CoDroneControllerAPI={Drone:$,parseButton:ct,ButtonEvent:W};
 
       // Manual Flying Input Response (Only when airborne)
       if (droneState.isFlying) {
-        const kb = manualFlightActive() ? keysPressed : {}; // the keyboard only flies the drone on the Manual tab, never while a Python program runs
         const rad = (droneState.yaw * Math.PI) / 180;
         const forwardX = Math.sin(rad);
         const forwardY = Math.cos(rad);
@@ -2715,30 +2676,30 @@ window.CoDroneControllerAPI={Drone:$,parseButton:ct,ButtonEvent:W};
 
         // WASD Controls:
         // W/S: Throttle Altitude Up/Down
-        if (kb['KeyW']) droneState.z += speedCfg.linear;
-        if (kb['KeyS']) droneState.z = Math.max(0, droneState.z - speedCfg.linear);
+        if (keysPressed['KeyW']) droneState.z += speedCfg.linear;
+        if (keysPressed['KeyS']) droneState.z = Math.max(0, droneState.z - speedCfg.linear);
 
         // A/D: Yaw Left/Right
-        if (kb['KeyA']) droneState.yaw = (droneState.yaw - speedCfg.rotation + 360) % 360;
-        if (kb['KeyD']) droneState.yaw = (droneState.yaw + speedCfg.rotation) % 360;
+        if (keysPressed['KeyA']) droneState.yaw = (droneState.yaw - speedCfg.rotation + 360) % 360;
+        if (keysPressed['KeyD']) droneState.yaw = (droneState.yaw + speedCfg.rotation) % 360;
 
         // Arrow Key Controls:
         // Up/Down: Pitch Forward/Backward
-        if (kb['ArrowUp']) {
+        if (keysPressed['ArrowUp']) {
           droneState.x += forwardX * speedCfg.linear;
           droneState.y += forwardY * speedCfg.linear;
         }
-        if (kb['ArrowDown']) {
+        if (keysPressed['ArrowDown']) {
           droneState.x -= forwardX * speedCfg.linear;
           droneState.y -= forwardY * speedCfg.linear;
         }
 
         // Left/Right: Roll Left/Right
-        if (kb['ArrowLeft']) {
+        if (keysPressed['ArrowLeft']) {
           droneState.x -= rightX * speedCfg.linear;
           droneState.y -= rightY * speedCfg.linear;
         }
-        if (kb['ArrowRight']) {
+        if (keysPressed['ArrowRight']) {
           droneState.x += rightX * speedCfg.linear;
           droneState.y += rightY * speedCfg.linear;
         }
@@ -2881,8 +2842,6 @@ window.CoDroneControllerAPI={Drone:$,parseButton:ct,ButtonEvent:W};
 
     // Python Interpreter Simulation Engine
     let isScriptRunning = false;
-    let currentTab = 'manual'; // manual / code / map - flying by keyboard or controller only happens on the Manual tab
-    const manualFlightActive = () => currentTab === 'manual' && !isScriptRunning;
     let scriptAbort = false;
     let scriptVars = {};
     function argNum(line, fallback) {
@@ -2998,7 +2957,7 @@ window.CoDroneControllerAPI={Drone:$,parseButton:ct,ButtonEvent:W};
       const rad = d => d * Math.PI / 180, clamp = (v, a, b) => Math.max(a, Math.min(b, v));
       const wait = async (ms) => { if (scriptAbort) throw ABORT; await sleep(ms); if (scriptAbort) throw ABORT; };
       // Estimated flight rates per 1% power (tune against the real drone): cm/s and deg/s
-      const RATE = { lin: DRONE_CM_PER_S_PER_PERCENT, yaw: 1.8 };
+      const RATE = { lin: 1.0, yaw: 1.8 };
       const fv = { roll: 0, pitch: 0, yaw: 0, throttle: 0 };
       const ref = { x: START_POS.x, y: START_POS.y, yaw: 0 }; // sensor origin = the drone's start position
       const airborne = () => { if (!droneState.isFlying) { logConsole('Drone is not flying - call drone.takeoff() first.'); return false; } return true; };
@@ -3967,7 +3926,6 @@ window.CoDroneControllerAPI={Drone:$,parseButton:ct,ButtonEvent:W};
 
     // Attach UI Event Listeners
     document.addEventListener('DOMContentLoaded', () => {
-      const vEl = document.getElementById('appVersion'); if (vEl) vEl.textContent = 'v' + APP_VERSION;
       init3D();
 
       // Tab switching: Manual / Python / Map Editor
@@ -3975,11 +3933,6 @@ window.CoDroneControllerAPI={Drone:$,parseButton:ct,ButtonEvent:W};
       const TAB_OFF = 'flex-1 py-2 px-3 text-xs font-semibold rounded-lg hover:bg-slate-800/60 text-slate-400 border border-transparent transition flex items-center justify-center gap-2';
       const TABS = { manual: ['tabManualBtn', 'manualTabContent'], code: ['tabCodeBtn', 'codeTabContent'], map: ['tabMapBtn', 'mapTabContent'] };
       function showTab(name) {
-        const prev = currentTab; currentTab = name;
-        if (prev !== name) { // leaving a tab: stop any program, land and reset the drone
-          scriptAbort = true; isScriptRunning = false; releaseStep(); showLine(0);
-          document.getElementById('btnResetPos').click();
-        }
         for (const [k, [btn, panel]] of Object.entries(TABS)) {
           document.getElementById(btn).className = k === name ? TAB_ON : TAB_OFF;
           document.getElementById(panel).classList.toggle('hidden', k !== name);
@@ -4114,7 +4067,7 @@ window.CoDroneControllerAPI={Drone:$,parseButton:ct,ButtonEvent:W};
       if (pieceFlash && performance.now() > pieceFlash.until) unflashPiece();
 
       // Controls update / drone-follow cameras
-      if (cameraMode === 'orbit') { updateControllerCamera(); controls.update(); }
+      if (cameraMode === 'orbit') controls.update();
       else updateFollowCamera(false);
 
       // Render Scene
