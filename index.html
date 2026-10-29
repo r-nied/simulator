@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- 3D Drone Simulator v2.10.3 (SemVer: MAJOR.MINOR.PATCH). Old two-number files such as v2.21 were renamed to this scheme - see CHANGELOG.md -->
+<!-- 3D Drone Simulator v2.10.4 (SemVer: MAJOR.MINOR.PATCH). Old two-number files such as v2.21 were renamed to this scheme - see CHANGELOG.md -->
 <html lang="en" class="h-full bg-slate-950">
 <head>
   <meta charset="UTF-8">
@@ -1659,7 +1659,7 @@ window.CoDroneControllerAPI={Drone:$,parseButton:ct,ButtonEvent:W};
        ======================================================================== */
 
     // Version shown next to the title (also update the comment on line 2 and the file name). SemVer: MAJOR.MINOR.PATCH
-    const APP_VERSION = '2.10.3';
+    const APP_VERSION = '2.10.4';
 
     // Arena Mat Dimensions in cm
     const MAT_WIDTH = 243.84;  // 8 feet
@@ -3138,6 +3138,13 @@ window.CoDroneControllerAPI={Drone:$,parseButton:ct,ButtonEvent:W};
         move_downward(d = 50, u) { return vMove(-toCm(d, u)); },
         async turn_left(d = 90) { await executeTurn(-d); },
         async turn_right(d = 90) { await executeTurn(d); },
+        async turn_degree(h = 0) { // "turn to heading": absolute heading measured from the takeoff direction, takes the shortest way round
+          if (!airborne()) return;
+          const cur = ((droneState.yaw - ref.yaw + 540) % 360) - 180;       // current heading, -180..180
+          const delta = ((+h - cur) % 360 + 540) % 360 - 180;               // shortest signed turn, -180..180
+          logConsole(`turn_degree(${h}): turning ${Math.round(delta)}° to reach heading ${h}.`);
+          await executeTurn(delta);
+        },
         set_roll(p) { fv.roll = p; }, set_pitch(p) { fv.pitch = p; }, set_yaw(p) { fv.yaw = p; }, set_throttle(p) { fv.throttle = p; },
         move(s = 0.01) { return moveFor(s); },
         async go(dir = 'forward', p = 50, s = 1) {
@@ -3942,12 +3949,14 @@ window.CoDroneControllerAPI={Drone:$,parseButton:ct,ButtonEvent:W};
     async function executeTurn(deg) {
       if (!droneState.isFlying) return;
       const step = 3;
-      const steps = Math.abs(deg) / step;
       const dir = deg > 0 ? 1 : -1;
+      let remaining = Math.abs(deg);
 
-      for (let s = 0; s < steps; s++) {
+      while (remaining > 0.001) {
         if (scriptAbort) break;
-        droneState.yaw = (droneState.yaw + (step * dir) + 360) % 360;
+        const inc = Math.min(step, remaining); // last step is exact, so a 100 degree turn is exactly 100
+        droneState.yaw = (droneState.yaw + inc * dir + 360) % 360;
+        remaining -= inc;
         await sleep(20);
       }
     }
