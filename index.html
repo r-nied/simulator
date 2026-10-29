@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- 3D Drone Simulator v2.10.4 (SemVer: MAJOR.MINOR.PATCH). Old two-number files such as v2.21 were renamed to this scheme - see CHANGELOG.md -->
+<!-- 3D Drone Simulator v2.10.5 (SemVer: MAJOR.MINOR.PATCH). Old two-number files such as v2.21 were renamed to this scheme - see CHANGELOG.md -->
 <html lang="en" class="h-full bg-slate-950">
 <head>
   <meta charset="UTF-8">
@@ -1659,7 +1659,7 @@ window.CoDroneControllerAPI={Drone:$,parseButton:ct,ButtonEvent:W};
        ======================================================================== */
 
     // Version shown next to the title (also update the comment on line 2 and the file name). SemVer: MAJOR.MINOR.PATCH
-    const APP_VERSION = '2.10.4';
+    const APP_VERSION = '2.10.5';
 
     // Arena Mat Dimensions in cm
     const MAT_WIDTH = 243.84;  // 8 feet
@@ -2894,7 +2894,9 @@ window.CoDroneControllerAPI={Drone:$,parseButton:ct,ButtonEvent:W};
     // ===== Python (Blockly export) -> JavaScript transpiler =====
     const ABORT = { aborted: true };
     const PY_KW = [[/\bTrue\b/g, 'true'], [/\bFalse\b/g, 'false'], [/\bNone\b/g, 'null'], [/\band\b/g, '&&'], [/\bor\b/g, '||'],
-      [/\bnot\s+/g, '!'], [/(\w+)\s*\/\/\s*(\w+)/g, 'Math.floor($1/$2)'], [/\.append\(/g, '.push(']];
+      [/\bnot\s+/g, '!'], [/(\w+)\s*\/\/\s*(\w+)/g, 'Math.floor($1/$2)'], [/\.append\(/g, '.push('],
+      [/\bisinstance\(\s*(\w+)\s*,\s*(?:Number|int|float)\s*\)/g, "(typeof $1 === 'number')"], [/\bisinstance\(\s*(\w+)\s*,\s*str\s*\)/g, "(typeof $1 === 'string')"],
+      [/\bisinstance\(\s*(\w+)\s*,\s*bool\s*\)/g, "(typeof $1 === 'boolean')"]];
 
     function stripComment(l) {
       let q = null;
@@ -2945,7 +2947,38 @@ window.CoDroneControllerAPI={Drone:$,parseButton:ct,ButtonEvent:W};
         });
         return p.replace(/([(,]\s*)[A-Za-z_]\w*=(?!=)/g, '$1'); // drop keyword-argument names
       }).join('');
-      return awaitCalls(s, callSrc);
+      return awaitCalls(pyTernary(s), callSrc);
+    }
+
+    // Python "A if C else B" -> JavaScript "(C ? A : B)" (Blockly uses it for the change-variable block). Strings are masked first.
+    function pyTernary(s) {
+      if (!/\sif\s/.test(s)) return s;
+      const strs = [];
+      s = s.replace(/"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'/g, m => { strs.push(m); return '\u0001' + (strs.length - 1) + '\u0001'; });
+      const conv = e => {
+        const m = e.match(/^(.*?)\s+if\s+(.*?)\s+else\s+([\s\S]*)$/);
+        return m ? '(' + m[2] + ' ? ' + m[1] + ' : ' + conv(m[3]) + ')' : e;
+      };
+      const split = e => { // split on commas that are not inside brackets
+        const parts = []; let d = 0, cur = '';
+        for (const c of e) { if ('([{'.includes(c)) d++; else if (')]}'.includes(c)) d--; if (c === ',' && !d) { parts.push(cur); cur = ''; } else cur += c; }
+        parts.push(cur); return parts;
+      };
+      const walk = (e, top) => { // convert inside each bracket group first, then the text at this level
+        let out = '', i = 0;
+        while (i < e.length) {
+          const c = e[i];
+          if (c === '(' || c === '[') {
+            let d = 1, j = i + 1;
+            for (; j < e.length && d; j++) { if ('(['.includes(e[j])) d++; else if (')]'.includes(e[j])) d--; }
+            out += c + split(e.slice(i + 1, j - 1)).map(q => walk(q, false)).join(',') + e[j - 1];
+            i = j;
+          } else { out += c; i++; }
+        }
+        return conv(out);
+      };
+      s = walk(s, true);
+      return s.replace(/\u0001(\d+)\u0001/g, (a, i) => strs[+i]);
     }
 
     function transpilePython(src) {
