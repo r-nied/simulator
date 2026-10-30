@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- 3D Drone Simulator v2.10.5 (SemVer: MAJOR.MINOR.PATCH). Old two-number files such as v2.21 were renamed to this scheme - see CHANGELOG.md -->
+<!-- 3D Drone Simulator v2.11.0 (SemVer: MAJOR.MINOR.PATCH). Old two-number files such as v2.21 were renamed to this scheme - see CHANGELOG.md -->
 <html lang="en" class="h-full bg-slate-950">
 <head>
   <meta charset="UTF-8">
@@ -1489,7 +1489,7 @@ drone.close()</textarea>
 
           <!-- Variables + Console -->
           <div class="flex gap-2">
-          <div class="w-2/5 min-w-0 bg-slate-950 border border-slate-800 rounded-xl p-3 space-y-1.5">
+          <div class="w-[26%] min-w-[110px] min-w-0 bg-slate-950 border border-slate-800 rounded-xl p-3 space-y-1.5">
             <div class="flex justify-between items-center border-b border-slate-800 pb-1">
               <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
                 <i class="fa-solid fa-eye text-slate-500"></i>
@@ -1659,7 +1659,7 @@ window.CoDroneControllerAPI={Drone:$,parseButton:ct,ButtonEvent:W};
        ======================================================================== */
 
     // Version shown next to the title (also update the comment on line 2 and the file name). SemVer: MAJOR.MINOR.PATCH
-    const APP_VERSION = '2.10.5';
+    const APP_VERSION = '2.11.0';
 
     // Arena Mat Dimensions in cm
     const MAT_WIDTH = 243.84;  // 8 feet
@@ -2485,7 +2485,7 @@ window.CoDroneControllerAPI={Drone:$,parseButton:ct,ButtonEvent:W};
         if (e && e.name === 'NotFoundError') setControllerStatus('none selected', 'No controller was chosen. Plug it in with the USB cable, then try again.');
         else if (/permission|policy|disallowed|not allowed|security/i.test(msg)) setControllerStatus('blocked by the browser', 'The browser blocked USB access. If the simulator is inside a web page (like a Google Site), open it in its own Chrome tab instead.');
         else setControllerStatus('connection failed', msg);
-        logConsole('Controller connection failed: ' + msg);
+        logConsole('Controller connection failed: ' + msg, 'error');
       }
     }
 
@@ -3034,7 +3034,7 @@ window.CoDroneControllerAPI={Drone:$,parseButton:ct,ButtonEvent:W};
       const RATE = { lin: DRONE_CM_PER_S_PER_PERCENT, yaw: 1.8 };
       const fv = { roll: 0, pitch: 0, yaw: 0, throttle: 0 };
       const ref = { x: START_POS.x, y: START_POS.y, yaw: 0 }; // sensor origin = the drone's start position
-      const airborne = () => { if (!droneState.isFlying) { logConsole('Drone is not flying - call drone.takeoff() first.'); return false; } return true; };
+      const airborne = () => { if (!droneState.isFlying) { logConsole('Drone is not flying - call drone.takeoff() first.', 'warn'); return false; } return true; };
       const bound = () => { const hit = clampToMat(); droneState.z = clamp(droneState.z, 0, CEIL_LIMIT); return hit; };
       const moveFor = async (sec) => {
         if (!airborne()) return;
@@ -3064,7 +3064,7 @@ window.CoDroneControllerAPI={Drone:$,parseButton:ct,ButtonEvent:W};
       // Plays a note (Hz, or Note.C4 etc.) for a duration in milliseconds, then moves on - like the real buzzer
       const playNote = async (hz, ms, log) => {
         hz = Number(hz); ms = Number(ms) || 0;
-        if (isNaN(hz)) { logConsole('Unknown note - skipped.'); return; }
+        if (isNaN(hz)) { logConsole('Unknown note - skipped.', 'warn'); return; }
         if (log) logConsole(hz > 0 ? `♪ ${Math.round(hz)} Hz for ${ms} ms` : `(rest ${ms} ms)`);
         if (hz > 0) playTone(hz, ms / 1000);
         await wait(ms);
@@ -3107,7 +3107,7 @@ window.CoDroneControllerAPI={Drone:$,parseButton:ct,ButtonEvent:W};
           if (!airborne()) return;
           const dir = String(direction).toLowerCase();
           const spec = { back: ['flipPitch', 1], front: ['flipPitch', -1], left: ['flipRoll', 1], right: ['flipRoll', -1] }[dir];
-          if (!spec) { logConsole(`flip: unknown direction "${direction}" - use front, back, left or right.`); return; }
+          if (!spec) { logConsole(`flip: unknown direction "${direction}" - use front, back, left or right.`, 'warn'); return; }
           const frames = 36;
           try {
             for (let i = 1; i <= frames; i++) { await wait(16); droneState[spec[0]] = spec[1] * 2 * Math.PI * i / frames; }
@@ -3182,7 +3182,7 @@ window.CoDroneControllerAPI={Drone:$,parseButton:ct,ButtonEvent:W};
         move(s = 0.01) { return moveFor(s); },
         async go(dir = 'forward', p = 50, s = 1) {
           const d = dirs[String(dir).toLowerCase()];
-          if (!d) { logConsole(`Unknown direction: ${dir}`); return; }
+          if (!d) { logConsole(`Unknown direction: ${dir}`, 'warn'); return; }
           fv[d[0]] = d[1] * p; await moveFor(s); fv[d[0]] = 0;
         },
         async send_absolute_position(x = 0, y = 0, z = 0, v = 1) {
@@ -3200,7 +3200,7 @@ window.CoDroneControllerAPI={Drone:$,parseButton:ct,ButtonEvent:W};
         set_drone_LED(r, g, b, br) { led(r, g, b, br); },
         set_drone_LED_mode(r = 0, g = 0, b = 0, mode = 'solid', speed = 1) {
           const m = String(mode).toLowerCase().replace(/[\s-]+/g, '_');
-          if (!LED_MODES.includes(m)) { logConsole(`set_drone_LED_mode: unknown mode "${mode}" - using solid. Modes: ${LED_MODES.join(', ')}.`); }
+          if (!LED_MODES.includes(m)) { logConsole(`set_drone_LED_mode: unknown mode "${mode}" - using solid. Modes: ${LED_MODES.join(', ')}.`, 'warn'); }
           if (m === 'solid' || !LED_MODES.includes(m)) { led(r, g, b, 255); return; }
           logConsole(`LED ${m} effect: RGB (${r}, ${g}, ${b}), speed ${speed}.`);
           ledAnim = { r, g, b, mode: m, speed: Math.max(1, Math.min(10, +speed || 1)), t0: performance.now() };
@@ -3244,7 +3244,7 @@ window.CoDroneControllerAPI={Drone:$,parseButton:ct,ButtonEvent:W};
           }
           const name = String(k), m = name.match(/success|warning|error/i); // built-in sound sequences
           if (m && /sound|buzzer|beep|sequence|melody/i.test(name)) return () => sequence(m[0]);
-          return (...a) => logConsole(`drone.${name}(${a.map(pyRepr).join(', ')}) is not supported in the simulator yet - skipped.`);
+          return (...a) => logConsole(`drone.${name}(${a.map(pyRepr).join(', ')}) is not supported in the simulator yet - skipped.`, 'warn');
         }
       });
       const range = (a, b, s = 1) => { if (b === undefined) { b = a; a = 0; } const r = []; for (let i = a; s > 0 ? i < b : i > b; i += s) r.push(i); return r; };
@@ -3794,8 +3794,8 @@ window.CoDroneControllerAPI={Drone:$,parseButton:ct,ButtonEvent:W};
         await new AsyncFn(...names, js)(...names.map(k => env[k]));
         logConsole('Python script execution completed.');
       } catch (e) {
-        if (e && e.boundary) { logConsole(e.message); showBoundaryBanner(e.message, true); }
-        else logConsole(e === ABORT ? 'Script stopped.' : `Error: ${e.message}`);
+        if (e && e.boundary) { logConsole(e.message, 'error'); showBoundaryBanner(e.message, true); }
+        else e === ABORT ? logConsole('Script stopped.') : logConsole(`Error: ${e.message}`, 'error');
       }
       stopTone(); pauseFlightTimer();
       if (myRun === runSeq) { isScriptRunning = false; stepMode = false; stepWaiter = null; showLine(0); }
@@ -3998,11 +3998,13 @@ window.CoDroneControllerAPI={Drone:$,parseButton:ct,ButtonEvent:W};
       return new Promise(resolve => setTimeout(resolve, ms));
     }
 
-    function logConsole(msg) {
+    function logConsole(msg, level) { // level: 'error' (red, bold) or 'warn' (amber); anything else is a normal green line
       const consoleEl = document.getElementById('consoleLog');
       const time = new Date().toLocaleTimeString().split(' ')[0];
       const div = document.createElement('div');
       div.innerText = `[${time}] ${msg}`;
+      if (level === 'error') { div.style.cssText = 'color:#fecaca;font-weight:700;background:rgba(220,38,38,.22);border-left:3px solid #ef4444;padding:1px 4px'; }
+      else if (level === 'warn') { div.style.cssText = 'color:#fcd34d;font-weight:600;border-left:3px solid #f59e0b;padding:1px 4px'; }
       consoleEl.appendChild(div);
       consoleEl.scrollTop = consoleEl.scrollHeight;
     }
@@ -4113,6 +4115,7 @@ window.CoDroneControllerAPI={Drone:$,parseButton:ct,ButtonEvent:W};
         scriptAbort = true;
         isScriptRunning = false;
         document.getElementById('btnResetPos').click(); // same reset as the Manual tab
+        document.getElementById('consoleLog').innerHTML = ''; // fresh console after a reset
       });
       document.getElementById('btnTogglePath').addEventListener('click', (e) => {
         showTrail = !showTrail;
@@ -4132,6 +4135,7 @@ window.CoDroneControllerAPI={Drone:$,parseButton:ct,ButtonEvent:W};
         try { ok = document.execCommand('delete'); } catch (err) { ok = false; }
         if (editor.value !== '') editor.value = '';
         editor.dispatchEvent(new Event('input', { bubbles: true }));
+        document.getElementById('consoleLog').innerHTML = ''; // old output belongs to the old code
         logConsole('Code editor cleared (Ctrl/Cmd+Z to undo).');
       });
       document.getElementById('btnClearConsole').addEventListener('click', () => {
