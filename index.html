@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- 3D Drone Simulator v2.11.0 (SemVer: MAJOR.MINOR.PATCH). Old two-number files such as v2.21 were renamed to this scheme - see CHANGELOG.md -->
+<!-- 3D Drone Simulator v2.12.0 (SemVer: MAJOR.MINOR.PATCH). Old two-number files such as v2.21 were renamed to this scheme - see CHANGELOG.md -->
 <html lang="en" class="h-full bg-slate-950">
 <head>
   <meta charset="UTF-8">
@@ -1659,7 +1659,7 @@ window.CoDroneControllerAPI={Drone:$,parseButton:ct,ButtonEvent:W};
        ======================================================================== */
 
     // Version shown next to the title (also update the comment on line 2 and the file name). SemVer: MAJOR.MINOR.PATCH
-    const APP_VERSION = '2.11.0';
+    const APP_VERSION = '2.12.0';
 
     // Arena Mat Dimensions in cm
     const MAT_WIDTH = 243.84;  // 8 feet
@@ -3635,6 +3635,20 @@ window.CoDroneControllerAPI={Drone:$,parseButton:ct,ButtonEvent:W};
       scene.add(mapGroup); lastGood = null;
     }
 
+    // ---- built-in course maps (part of the app, listed under "Course maps" in the map menu) ----
+    const COURSE_MAPS = {
+      'Coding Course Map': { mat: 'blank', items: [
+        { type: 'cmat2', x: 0, y: 0, rot: 0 }, { type: 'cmat1', x: 185, y: 5, rot: 0 }, { type: 'keyhole_board', x: 95, y: 160, rot: 0 },
+        { type: 'key_yellow', x: 155, y: 230, rot: 0 }, { type: 'key_green', x: 35, y: 230, rot: 90 }, { type: 'pad_blue', x: 90, y: 60, rot: 0 },
+        { type: 'cube_large', x: 10, y: 125, rot: 0 }, { type: 'cube_small', x: 180, y: 120, rot: 0 } ] }
+    };
+    function openCourseMap(name) {
+      const m = COURSE_MAPS[name]; if (!m) return;
+      MapEditor.importItems(m.items); $id('meFloor').value = m.mat || 'blank'; showMapInSimulator(); $id('matSelect').value = 'course:' + name;
+      $id('meName').value = ''; updateSaveButtons(); // the editor holds a copy: change it and save under your own name if you like
+      logConsole(`Loaded course map: ${name}`);
+    }
+
     // ---- saved maps (the "My maps" part of the map menu) ----
     let savedMaps = {};
     let storageOk = true;
@@ -3668,8 +3682,12 @@ window.CoDroneControllerAPI={Drone:$,parseButton:ct,ButtonEvent:W};
       $id('meDelMap').style.display = exists ? '' : 'none';
     }
     function wireMapTab() {
-      MapEditor.init(); loadSavedMaps(); refreshMapMenu(); updateSaveButtons();
-      [...$id('matSelect').options].filter(o => !o.value.startsWith('map:') && o.value !== 'color').forEach(o => { const c = document.createElement('option'); c.value = o.value; c.textContent = o.text; c.className = 'bg-slate-900'; $id('meFloor').appendChild(c); });
+      MapEditor.init(); loadSavedMaps();
+      { const g = document.createElement('optgroup'); g.id = 'courseMapsGroup'; g.label = 'Course maps';
+        Object.keys(COURSE_MAPS).forEach(n => { const o = document.createElement('option'); o.value = 'course:' + n; o.textContent = n; o.className = 'bg-slate-900'; g.appendChild(o); });
+        $id('matSelect').appendChild(g); }
+      refreshMapMenu(); updateSaveButtons();
+      [...$id('matSelect').options].filter(o => !o.value.startsWith('map:') && !o.value.startsWith('course:') && o.value !== 'color').forEach(o => { const c = document.createElement('option'); c.value = o.value; c.textContent = o.text; c.className = 'bg-slate-900'; $id('meFloor').appendChild(c); });
       $id('meFloor').value = 'blank';
       if ($id('meFloor').options.length < 2) $id('meFloor').parentElement.style.display = 'none'; // only one floor to choose from
       $id('meName').addEventListener('input', updateSaveButtons);
@@ -4087,6 +4105,7 @@ window.CoDroneControllerAPI={Drone:$,parseButton:ct,ButtonEvent:W};
       document.getElementById('matSelect').addEventListener('change', (e) => {
         const v = e.target.value;
         if (v.startsWith('map:')) { openSavedMap(v.slice(4)); return; }
+        if (v.startsWith('course:')) { openCourseMap(v.slice(7)); return; }
         clearMapFromScene(); // picking a plain mat clears any loaded map
         if (v === 'color') {
           applySensorTestingGround();
