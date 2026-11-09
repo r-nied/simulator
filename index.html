@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- 3D Drone Simulator v2.12.0 (SemVer: MAJOR.MINOR.PATCH). Old two-number files such as v2.21 were renamed to this scheme - see CHANGELOG.md -->
+<!-- 3D Drone Simulator v2.13.1 (SemVer: MAJOR.MINOR.PATCH). Old two-number files such as v2.21 were renamed to this scheme - see CHANGELOG.md -->
 <html lang="en" class="h-full bg-slate-950">
 <head>
   <meta charset="UTF-8">
@@ -1659,7 +1659,7 @@ window.CoDroneControllerAPI={Drone:$,parseButton:ct,ButtonEvent:W};
        ======================================================================== */
 
     // Version shown next to the title (also update the comment on line 2 and the file name). SemVer: MAJOR.MINOR.PATCH
-    const APP_VERSION = '2.12.0';
+    const APP_VERSION = '2.13.1';
 
     // Arena Mat Dimensions in cm
     const MAT_WIDTH = 243.84;  // 8 feet
@@ -2031,6 +2031,7 @@ window.CoDroneControllerAPI={Drone:$,parseButton:ct,ButtonEvent:W};
       createDroneModel();
 
       initMatHover();
+      initPieceInfo();
       initPathAndEdge();
 
       // Window Resize Listener
@@ -2210,6 +2211,65 @@ window.CoDroneControllerAPI={Drone:$,parseButton:ct,ButtonEvent:W};
         if (ty > cr.height - 60) ty -= 70;
         tip.style.left = tx + 'px';
         tip.style.top = ty + 'px';
+      });
+    }
+
+    // ===== Click a piece in the 3D view to see its size, height and openings =====
+    let hidePieceInfo = () => {};
+    function pieceInfo(p) { // -> { title, rows: [[label, value], ...] } or null for flat pieces (cm)
+      const d = p.def, it = p.item, f = v => (Math.round(v * 10) / 10) + ' cm', win = (lo, hi) => f(lo) + ' to ' + f(hi);
+      const rows = [], add = (a, b) => rows.push([a, b]);
+      if (d.kind === 'cube') {
+        const hb = (d.h - d.holeH) / 2;
+        add('Overall height', f(d.h));
+        add('Opening height', win(hb, hb + d.holeH));
+      } else if (d.kind === 'trifold') {
+        add('Overall height', f(d.panelH));
+        d.holes.forEach((h, n) => { const top = d.panelH - h.top; add('Opening ' + (n + 1) + (n ? ' (small)' : ' (large)') + ' height', win(top - h.h, top)); });
+      } else if (d.kind === 'gate' && it.type.startsWith('arch')) {
+        add('Overall height', f(188));
+        add('Opening height', win(0, 160));
+      } else if (d.kind === 'gate') {
+        add('Overall height', f(KEYHOLE_HEIGHT + d.w / 2));
+        add('Opening height', win(KEYHOLE_HEIGHT - d.open / 2, KEYHOLE_HEIGHT + d.open / 2));
+      } else if (d.kind === 'wall') {
+        add('Overall height', f(d.h));
+      } else if (d.kind === 'tunnel') {
+        add('Overall height', f(d.w));
+      } else return null; // flat pads and mats: nothing to show
+      return { title: d.name || it.type, rows };
+    }
+    function initPieceInfo() {
+      const container = document.getElementById('canvas-container'), dom = renderer.domElement, ray = new THREE.Raycaster(), m = new THREE.Vector2();
+      const card = document.createElement('div');
+      card.style.cssText = 'position:absolute;display:none;z-index:16;max-width:290px;padding:8px 10px;border-radius:10px;background:rgba(15,23,42,0.96);' +
+        'border:1px solid #facc15;font:500 11px "JetBrains Mono",monospace;color:#e2e8f0;line-height:1.45';
+      container.parentElement.appendChild(card);
+      let box = null, down = null;
+      hidePieceInfo = () => { card.style.display = 'none'; if (box) { scene.remove(box); box = null; } };
+      card.addEventListener('pointerdown', e => e.stopPropagation());
+      dom.addEventListener('pointerdown', e => { down = { x: e.clientX, y: e.clientY }; });
+      dom.addEventListener('pointerup', e => {
+        if (!down || e.button > 0 || Math.hypot(e.clientX - down.x, e.clientY - down.y) > 5) { down = null; return; } // a drag turns the camera, it is not a click
+        down = null;
+        const rect = dom.getBoundingClientRect();
+        m.set(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
+        ray.setFromCamera(m, camera);
+        const hit = ray.intersectObjects(activePieces.map(p => p.group), true)[0];
+        hidePieceInfo();
+        if (!hit) return;
+        let o = hit.object; while (o && !activePieces.some(p => p.group === o)) o = o.parent;
+        const p = o && activePieces.find(q => q.group === o); if (!p) return;
+        const info = pieceInfo(p); if (!info) return;
+        card.innerHTML = '<div style="display:flex;justify-content:space-between;gap:10px;color:#facc15;font-weight:700;margin-bottom:3px"><span>' + info.title + '</span>' +
+          '<span id="pieceInfoX" style="cursor:pointer;color:#94a3b8">\u2715</span></div>' +
+          info.rows.map(r => '<div><span style="color:#94a3b8">' + r[0].replace(/^ +/, '&nbsp;&nbsp;') + ':</span> ' + r[1] + '</div>').join('');
+        card.style.display = 'block';
+        card.querySelector('#pieceInfoX').addEventListener('click', hidePieceInfo);
+        const cr = container.getBoundingClientRect();
+        card.style.left = Math.max(4, Math.min(cr.width - card.offsetWidth - 4, e.clientX - cr.left + 14)) + 'px';
+        card.style.top = Math.max(4, Math.min(cr.height - card.offsetHeight - 4, e.clientY - cr.top + 14)) + 'px';
+        box = new THREE.BoxHelper(p.group, 0xfacc15); box.material.depthTest = false; box.renderOrder = 12; scene.add(box);
       });
     }
 
@@ -3585,6 +3645,7 @@ window.CoDroneControllerAPI={Drone:$,parseButton:ct,ButtonEvent:W};
       pieceFlash = null;
     }
     function clearMapFromScene() {
+      hidePieceInfo();
       activePieces = []; pieceFlash = null; resetBattery(); // a new map or floor means a fresh start
       if (!mapGroup) return;
       mapGroup.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); });
