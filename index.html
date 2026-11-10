@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- 3D Drone Simulator v2.13.1 (SemVer: MAJOR.MINOR.PATCH). Old two-number files such as v2.21 were renamed to this scheme - see CHANGELOG.md -->
+<!-- 3D Drone Simulator v2.14.3 (SemVer: MAJOR.MINOR.PATCH). Old two-number files such as v2.21 were renamed to this scheme - see CHANGELOG.md -->
 <html lang="en" class="h-full bg-slate-950">
 <head>
   <meta charset="UTF-8">
@@ -1292,6 +1292,13 @@ Check your Browserslist config to be sure that your targets are set up correctly
       </div>
 
 
+      <!-- Course score (bottom-right of the 3D view): only shown when the loaded map has pieces that score points -->
+      <div id="scoreBox" class="hidden absolute bottom-3 right-3 z-10 bg-slate-900/90 backdrop-blur-md border border-amber-500/60 rounded-lg px-3 py-2 shadow-lg min-w-[118px] max-w-[210px] text-center">
+        <div id="scoreHead" class="text-[9px] font-bold text-amber-300 uppercase tracking-wider">Score</div>
+        <div id="scoreTotal" class="text-2xl font-mono font-bold text-amber-300 tabular-nums leading-tight">0</div>
+        <div id="scoreLog" class="mt-1 text-[10px] text-left font-mono leading-snug space-y-0.5"></div>
+      </div>
+
       <!-- 3D Viewport Helper Legend -->
       <div class="absolute bottom-3 left-3 bg-slate-900/80 backdrop-blur-md border border-slate-800 rounded-lg px-3 py-1.5 text-[11px] text-slate-400 flex items-center gap-3 pointer-events-none">
         <span class="flex items-center gap-1"><span class="w-2.5 h-0.5 bg-red-500 inline-block"></span> X Axis (244cm)</span>
@@ -1659,7 +1666,7 @@ window.CoDroneControllerAPI={Drone:$,parseButton:ct,ButtonEvent:W};
        ======================================================================== */
 
     // Version shown next to the title (also update the comment on line 2 and the file name). SemVer: MAJOR.MINOR.PATCH
-    const APP_VERSION = '2.13.1';
+    const APP_VERSION = '2.14.3';
 
     // Arena Mat Dimensions in cm
     const MAT_WIDTH = 243.84;  // 8 feet
@@ -2273,6 +2280,138 @@ window.CoDroneControllerAPI={Drone:$,parseButton:ct,ButtonEvent:W};
       });
     }
 
+
+    // ===== Course scoring (the teacher's point table) =====
+    // Landing pad: land on the target 2, land in the bullseye 5 (the bullseye replaces the 2). Measured from the drone's centre.
+    // Keyhole board: top (large) hole 5, bottom (small) hole 10.
+    // Small cube: land on it 5, fly through it 10.  Large cube: land on it 2, fly through it 5.
+    // Green and yellow ring gates: fly through a gate 2 (each gate); zig zag (weave around both gates, passing them on opposite sides) 5.
+    // Rule: you can score on an object again, but not twice in a row. Each ring gate is its own object; the zig zag is its own stunt.
+    // A crash (hitting a piece, the edge of the mat or the ceiling, or a failed landing) ends the game: the final score stays on screen
+    // (nothing more can score) until the drone moves again or takes off again, then a new game starts at 0. Landing after a crash is not a move.
+    // "Fly through" a cube = in through one opening and out through a different one.
+    const SCORE_POINTS = {
+      pad: { target: 2, bull: 5 }, keyhole: [5, 10], gate: 2, zigzag: 5,
+      cube_small: { land: 5, through: 10 }, cube_large: { land: 2, through: 5 }
+    };
+    const RING_GATES = ['key_yellow', 'key_green'];
+    const ZIGZAG_MAX = 150; // cm sideways from the line between the gates; further away is not weaving
+    let score = { total: 0, last: null, log: [], prev: null, cubes: {}, pass: null };
+    const scoreable = p => /^pad_/.test(p.item.type) || p.item.type === 'keyhole_board' || !!SCORE_POINTS[p.item.type] || RING_GATES.includes(p.item.type);
+    function toLocal(p, x, y) { // mat point -> the piece's own axes (lx = across, ly = along its forward direction), like pieceSolid
+      const it = p.item, dx = x - it.x, dy = y - it.y, t = it.rot * Math.PI / 180;
+      return { lx: dx * Math.cos(t) - dy * Math.sin(t), ly: dx * Math.sin(t) + dy * Math.cos(t) };
+    }
+    function renderScore(flash) {
+      const box = document.getElementById('scoreBox'); if (!box) return;
+      box.classList.toggle('hidden', !activePieces.some(scoreable));
+      document.getElementById('scoreHead').textContent = score.over ? 'Game over \u00b7 final score' : 'Score';
+      document.getElementById('scoreHead').style.color = score.over ? '#f87171' : '';
+      box.style.borderColor = score.over ? '#ef4444' : '';
+      document.getElementById('scoreTotal').textContent = score.total;
+      document.getElementById('scoreLog').innerHTML = score.log.map((e, i) =>
+        `<div class="${i === 0 && flash ? 'var-flash ' : ''}flex gap-1.5 px-0.5 rounded"><span class="${e.over ? 'text-red-400' : e.pts ? 'text-amber-300' : 'text-slate-500'} font-bold w-6 text-right shrink-0">${e.over ? '\u2715' : e.pts ? '+' + e.pts : '0'}</span>` +
+        `<span class="${e.over ? 'text-red-300' : e.pts ? 'text-slate-300' : 'text-slate-500'} truncate" title="${esc(e.label).replace(/"/g, '&quot;')}">${esc(e.label)}</span></div>`).join('');
+    }
+    function resetScore() { score = { total: 0, last: null, log: [], prev: null, cubes: {}, pass: null, over: false, overAt: null }; renderScore(); }
+    function scoreGameOver() { // a crash ends the game; the score stays until the drone moves or takes off again
+      if (score.over) return; // already over (the drone is still pressed against something)
+      score.over = true; score.overAt = { x: droneState.x, y: droneState.y, z: droneState.z }; score.pass = null;
+      score.log.unshift({ pts: 0, over: true, label: 'Crash - game over' }); score.log.length = Math.min(score.log.length, 5);
+      logConsole(`Crash - game over. Final score: ${score.total}. Move or take off again to start a new game.`, 'error');
+      renderScore(true);
+    }
+    function scoreNewGame() { if (score.over) { resetScore(); logConsole('New game: score back to 0.'); } }
+    function scoreTeleported() { score.prev = null; score.cubes = {}; score.pass = null; } // the drone jumped (reset, debugger rewind): no path to judge
+    function award(obj, objName, label, pts) {
+      if (score.over) return; // nothing scores after a crash until a new game starts
+      if (score.last === obj) {
+        score.log.unshift({ pts: 0, label: label + ' (twice in a row)' });
+        logConsole(`No points for "${label}": you can't score on ${/^(the|zig) /.test(objName) ? objName : 'the ' + objName} twice in a row.`, 'warn');
+      } else {
+        score.last = obj; score.total += pts;
+        score.log.unshift({ pts, label });
+        logConsole(`+${pts} points: ${label}. Score: ${score.total}`);
+      }
+      score.log.length = Math.min(score.log.length, 5);
+      renderScore(true);
+    }
+    // Called whenever the drone moves: looks at the path from its last position to this one
+    function scoreTick() {
+      const cur = { x: droneState.x, y: droneState.y, z: droneState.z }, prev = score.prev;
+      score.prev = cur;
+      if (score.over) { // waiting for the player to move: a sideways move, or up/down that is not the landing
+        const o = score.overAt;
+        if (droneState.isFlying && (Math.hypot(cur.x - o.x, cur.y - o.y) > 1 || (!droneState.isLanding && Math.abs(cur.z - o.z) > 1))) { scoreNewGame(); score.prev = cur; }
+        return;
+      }
+      if (!prev || !droneState.isFlying || !activePieces.length) return;
+      if (prev.x === cur.x && prev.y === cur.y && prev.z === cur.z) return;
+      const mid = z => z + DRONE_H / 2; // the middle of the drone's height
+      for (const p of activePieces) {
+        if (!scoreable(p)) continue;
+        const d = p.def, type = p.item.type, a = toLocal(p, prev.x, prev.y), b = toLocal(p, cur.x, cur.y);
+        const at = pl => { const f = (pl - a.ly) / (b.ly - a.ly); return { lx: a.lx + (b.lx - a.lx) * f, z: prev.z + (cur.z - prev.z) * f }; }; // where the path crosses the plane ly = pl
+        const crosses = pl => (a.ly < pl) !== (b.ly < pl);
+        if (RING_GATES.includes(type)) {
+          if (crosses(0)) { const c = at(0); if (Math.hypot(c.lx, mid(c.z) - KEYHOLE_HEIGHT) < d.open / 2) { score.pass = null; award(type, 'the ' + d.name, `Through the ${d.short || d.name}`, SCORE_POINTS.gate); } }
+        } else if (type === 'keyhole_board') {
+          const pl = -d.d / 2 + d.t / 2; // the centre panel
+          if (crosses(pl)) {
+            const c = at(pl);
+            d.holes.forEach((h, n) => {
+              const y1 = d.panelH - h.top, y0 = y1 - h.h;
+              if (Math.abs(c.lx) <= h.w / 2 && mid(c.z) >= y0 && mid(c.z) <= y1) award(type, 'keyhole board', n ? 'Keyhole bottom hole' : 'Keyhole top hole', SCORE_POINTS.keyhole[n]);
+            });
+          }
+        } else if (d.kind === 'cube') {
+          const T = CUBE_WALL, hw = d.w / 2, hd = d.d / 2;
+          const inside = (q, z) => Math.abs(q.lx) < hw - T && Math.abs(q.ly) < hd - T && z < d.h - T;
+          const side = q => (Math.abs(q.lx) - hw > Math.abs(q.ly) - hd) ? (q.lx > 0 ? 'E' : 'W') : (q.ly > 0 ? 'N' : 'S'); // which wall it is at
+          const st = score.cubes[type] || (score.cubes[type] = {}), wasIn = inside(a, prev.z), isIn = inside(b, cur.z);
+          if (!wasIn && isIn) st.entry = side(a);
+          else if (wasIn && !isIn) { if (st.entry && side(b) !== st.entry) award(type, d.name, `Through the ${d.short}`, SCORE_POINTS[type].through); st.entry = null; }
+        }
+      }
+      // Zig zag: pass beside one ring gate, then beside the other gate on the OPPOSITE side (weaving between them)
+      const gates = activePieces.filter(p => RING_GATES.includes(p.item.type));
+      if (gates.length === 2) {
+        const [g1, g2] = gates, ax = g2.item.x - g1.item.x, ay = g2.item.y - g1.item.y, L = Math.hypot(ax, ay);
+        if (L > 1) {
+          const ux = ax / L, uy = ay / L;
+          const along = q => (q.x - g1.item.x) * ux + (q.y - g1.item.y) * uy, side = q => (q.y - g1.item.y) * ux - (q.x - g1.item.x) * uy;
+          const tp = along(prev), tc = along(cur), sp = side(prev), sc = side(cur);
+          [[g1, 0], [g2, L]].forEach(([g, at]) => {
+            if ((tp < at) === (tc < at)) return; // not passing this gate
+            const f = (at - tp) / (tc - tp), off = sp + (sc - sp) * f, zc = prev.z + (cur.z - prev.z) * f;
+            const q = toLocal(g, prev.x + (cur.x - prev.x) * f, prev.y + (cur.y - prev.y) * f);
+            const atRing = Math.abs(q.ly) < g.def.d / 2 + EDGE && Math.hypot(q.lx, mid(zc) - KEYHOLE_HEIGHT) < g.def.w / 2 + EDGE; // through the ring, not beside it
+            if (atRing || Math.abs(off) < EDGE || Math.abs(off) > ZIGZAG_MAX) { score.pass = null; return; }
+            const sgn = Math.sign(off), pr = score.pass;
+            if (pr && pr.gate !== g && pr.side !== sgn) { score.pass = null; award('zigzag', 'zig zag', 'Zig zag both gates', SCORE_POINTS.zigzag); }
+            else score.pass = { gate: g, side: sgn };
+          });
+        }
+      }
+    }
+    // Called the moment the drone touches down (not after an emergency stop)
+    function scoreLanding() {
+      if (!activePieces.length) return;
+      const z = droneState.z;
+      if (z > 0.5) { // on top of a cube
+        const p = activePieces.find(q => q.def.kind === 'cube' && SCORE_POINTS[q.item.type] && Math.abs(q.def.h - z) < 0.6);
+        if (p) award(p.item.type, p.def.name, `Landed on the ${p.def.short}`, SCORE_POINTS[p.item.type].land);
+        return;
+      }
+      for (const p of activePieces) {
+        if (p.def.kind !== 'pad' || !/^pad_/.test(p.item.type)) continue;
+        const r = Math.hypot(droneState.x - p.item.x, droneState.y - p.item.y);
+        if (r <= p.def.bull) { award(p.item.type, p.def.name, `${p.def.short} bullseye`, SCORE_POINTS.pad.bull); return; }
+        if (r <= p.def.r) { award(p.item.type, p.def.name, `${p.def.short} target`, SCORE_POINTS.pad.target); return; }
+      }
+    }
+    // ===== end Course scoring =====
+
     // ===== Flight path, mat edge outline and boundary banner =====
     let trailLine, trailCount = 0, showTrail = true, edgeFrame, ceilingPane, edgeFlashUntil = 0, bannerEl, bannerTimer;
     const TRAIL_MAX = 4000, trailPts = new Float32Array(TRAIL_MAX * 3);
@@ -2702,14 +2841,16 @@ window.CoDroneControllerAPI={Drone:$,parseButton:ct,ButtonEvent:W};
       logConsole('Sensor Testing Ground refreshed with a new layout.');
     }
 
+    const TAKEOFF_HEIGHT = 80; // cm - Robolink: takeoff goes to about 80 cm. No random wobble: every reading matches the simulator exactly.
     // Toggle Takeoff and Landing
     function toggleTakeoffLand() {
       if (!droneState.isFlying) {
         // Takeoff Sequence
         droneState.isFlying = true;
         droneState.isTakingOff = true;
+        scoreNewGame(); // taking off again after a crash starts a new game
         startFlightTimer();
-        droneState.targetZ = floorBelow() + 80 + (Math.random() * 8 - 4); // real drone averages ~80 cm and varies a little each run
+        droneState.targetZ = floorBelow() + TAKEOFF_HEIGHT; // always exactly 80 cm above the floor (or the cube it took off from)
         logConsole('Takeoff initiated.');
         playDroneBuzzer(523, 0.3);
       } else {
@@ -2760,6 +2901,7 @@ window.CoDroneControllerAPI={Drone:$,parseButton:ct,ButtonEvent:W};
           droneState.isLanding = false;
           pauseFlightTimer();
           logConsole('Drone landed safely.');
+          scoreLanding();
           updateStatusBadge();
         }
       }
@@ -2821,6 +2963,7 @@ window.CoDroneControllerAPI={Drone:$,parseButton:ct,ButtonEvent:W};
       calculateSensors();
       updateDroneMeshPosition();
       updateTrail();
+      scoreTick();
     }
 
     // Calculate Telemetry & Sensor Values
@@ -3277,11 +3420,11 @@ window.CoDroneControllerAPI={Drone:$,parseButton:ct,ButtonEvent:W};
         get_angle_z() { return Math.round(((droneState.yaw - ref.yaw + 540) % 360) - 180); },
         get_battery() { return Math.round(Math.max(0, droneState.battery)); },
         get_drone_temperature(u = 'C') {
-          const c = droneState.temp + (Math.random() - 0.5) * 0.1, k = String(u)[0].toLowerCase(); // tiny sensor noise
+          const c = droneState.temp, k = String(u)[0].toLowerCase(); // no sensor noise
           return Math.round((k === 'f' ? c * 9 / 5 + 32 : k === 'k' ? c + 273.15 : c) * 10) / 10;
         },
-        get_pressure(u = 'Pa') { // air pressure falls about 12 Pa for every metre climbed (standard atmosphere), plus a little sensor noise
-          const pa = airPressurePa() + (Math.random() - 0.5) * 8;
+        get_pressure(u = 'Pa') { // air pressure falls about 12 Pa for every metre climbed (standard atmosphere); no sensor noise
+          const pa = airPressurePa();
           return /^m/i.test(String(u)) ? Math.round(pa) / 100 : Math.round(pa);
         },
         get_accel_x() { return 0; }, get_accel_y() { return 0; }, get_accel_z() { return 98; },
@@ -3646,7 +3789,7 @@ window.CoDroneControllerAPI={Drone:$,parseButton:ct,ButtonEvent:W};
     }
     function clearMapFromScene() {
       hidePieceInfo();
-      activePieces = []; pieceFlash = null; resetBattery(); // a new map or floor means a fresh start
+      activePieces = []; pieceFlash = null; resetBattery(); resetScore(); // a new map or floor means a fresh start
       if (!mapGroup) return;
       mapGroup.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); });
       scene.remove(mapGroup); mapGroup = null;
@@ -3693,7 +3836,7 @@ window.CoDroneControllerAPI={Drone:$,parseButton:ct,ButtonEvent:W};
     function applyMapToScene(list) {
       clearMapFromScene(); mapGroup = new THREE.Group();
       list.forEach(it => { const g = buildPiece(it); mapGroup.add(g); activePieces.push({ item: it, def: MapEditor.DEF[it.type], group: g }); });
-      scene.add(mapGroup); lastGood = null;
+      scene.add(mapGroup); lastGood = null; renderScore();
     }
 
     // ---- built-in course maps (part of the app, listed under "Course maps" in the map menu) ----
@@ -3825,7 +3968,7 @@ window.CoDroneControllerAPI={Drone:$,parseButton:ct,ButtonEvent:W};
     }
     function dbgRestore(i) { // show the drone, variables and highlighted line exactly as they were at step i
       const s = stepHistory[i]; if (!s) return;
-      histPos = i; Object.assign(droneState, s.d);
+      histPos = i; Object.assign(droneState, s.d); scoreTeleported();
       watchVars = new Map([...s.vars].map(([k, v]) => [k, { ...v }])); renderVars();
       trailCount = s.trail; if (trailLine) trailLine.geometry.setDrawRange(0, trailCount);
       topLedLight.material.color.setHex(s.led); ledAnim = null;
@@ -3863,6 +4006,7 @@ window.CoDroneControllerAPI={Drone:$,parseButton:ct,ButtonEvent:W};
       stepMode = step === true; stepWaiter = null;
       stepHistory = []; histPos = -1; watchVars = new Map(); renderVars(); showLine(0);
       resetBattery(); // every program starts on a full battery
+      resetScore(); // and a score of 0
       try { ensureAudio(); } catch (e) {}
       boundaryHit = null; clearTrail(); hideBoundaryBanner(); ledAnim = null;
       logConsole(stepMode ? 'Stepping through the program - press the forward button for each line.' : 'Starting Python flight execution...');
@@ -4013,6 +4157,7 @@ window.CoDroneControllerAPI={Drone:$,parseButton:ct,ButtonEvent:W};
         return true;
       }
       lastGood = { x: droneState.x, y: droneState.y, z: droneState.z };
+      scoreTick();
       if (ceilingHit && !hit) { boundaryContact(null, false, true); return true; }
       if (hit) boundaryContact();
       return hit;
@@ -4023,6 +4168,7 @@ window.CoDroneControllerAPI={Drone:$,parseButton:ct,ButtonEvent:W};
       // During a Python run the program is stopped; in manual flight the drone just stops
       if (isScriptRunning && !boundaryHit) boundaryHit = { x: droneState.x - START_POS.x, y: droneState.y - START_POS.y, what, landing, ceiling: !!ceiling };
       if (piece) flashPiece(piece); else if (ceiling) flashCeiling(); else flashEdge();
+      scoreGameOver();
       const now = performance.now();
       if (!isScriptRunning && now - lastBannerAt > 3000) {
         lastBannerAt = now;
@@ -4150,6 +4296,7 @@ window.CoDroneControllerAPI={Drone:$,parseButton:ct,ButtonEvent:W};
         droneState.isLanding = false;
         resetFlightTimer();
         resetBattery();
+        resetScore();
         updateStatusBadge();
         if (cameraMode !== 'orbit') updateFollowCamera(true);
         logConsole('Reset drone to the start position (0,0,0).');
